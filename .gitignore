@@ -1,0 +1,22 @@
+# Node
+app-web/node_modules
+app-web/.next
+app-web/out
+
+# Env
+.env
+.env.local
+.env.*.local
+app-web/.env.local
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# OS / editor
+.DS_Store
+.vscode/*.log
+.env.worker
+examproof-dev.keystore.json
