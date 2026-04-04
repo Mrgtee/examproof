@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-export default function SignInPage() {
+function SignInPageContent() {
   const searchParams = useSearchParams();
 
   const rawRedirectedFrom = searchParams.get("redirectedFrom");
@@ -228,5 +228,21 @@ export default function SignInPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-[#ddd1c4] px-4 py-8 text-[#2f241d] md:px-6">
+          <div className="mx-auto max-w-xl rounded-[32px] border border-[#e7dcd1] bg-[#f7f2ec] p-6 shadow-[0_24px_90px_rgba(68,45,28,0.10)] md:p-8">
+            <div className="text-sm text-[#7f6a5a]">Loading sign in...</div>
+          </div>
+        </main>
+      }
+    >
+      <SignInPageContent />
+    </Suspense>
   );
 }
