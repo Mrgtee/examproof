@@ -1,22 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-function SignInPageContent() {
-  const searchParams = useSearchParams();
-
-  const rawRedirectedFrom = searchParams.get("redirectedFrom");
-
-  const redirectedFrom =
-    rawRedirectedFrom &&
-    rawRedirectedFrom.startsWith("/") &&
-    !rawRedirectedFrom.includes("/undefined") &&
-    !rawRedirectedFrom.includes("/null")
-      ? rawRedirectedFrom
-      : "/recruiter/create-exam";
-
+export default function SignInPage() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,6 +11,24 @@ function SignInPageContent() {
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [redirectedFrom, setRedirectedFrom] = useState("/recruiter/create-exam");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const rawRedirectedFrom = params.get("redirectedFrom");
+
+    const safeRedirect =
+      rawRedirectedFrom &&
+      rawRedirectedFrom.startsWith("/") &&
+      !rawRedirectedFrom.includes("/undefined") &&
+      !rawRedirectedFrom.includes("/null")
+        ? rawRedirectedFrom
+        : "/recruiter/create-exam";
+
+    setRedirectedFrom(safeRedirect);
+  }, []);
 
   useEffect(() => {
     async function checkSession() {
@@ -119,9 +124,11 @@ function SignInPageContent() {
         <div className="text-xs uppercase tracking-[0.28em] text-[#7f6a5a]">
           {mode === "signin" ? "Sign in" : "Create account"}
         </div>
+
         <h1 className="mt-3 text-4xl font-semibold tracking-[-0.04em]">
           Recruiter access
         </h1>
+
         <p className="mt-3 text-[15px] leading-7 text-[#7f6a5a]">
           {mode === "signin"
             ? "Sign in with your email and password."
@@ -138,6 +145,7 @@ function SignInPageContent() {
               className="w-full rounded-[20px] border border-[#e7dcd1] bg-white px-4 py-3 outline-none"
               required
             />
+
             <input
               type="password"
               placeholder="Password"
@@ -146,6 +154,7 @@ function SignInPageContent() {
               className="w-full rounded-[20px] border border-[#e7dcd1] bg-white px-4 py-3 outline-none"
               required
             />
+
             <div className="flex flex-wrap gap-3">
               <button
                 disabled={loading}
@@ -175,6 +184,7 @@ function SignInPageContent() {
               onChange={(e) => setFullName(e.target.value)}
               className="w-full rounded-[20px] border border-[#e7dcd1] bg-white px-4 py-3 outline-none"
             />
+
             <input
               type="email"
               placeholder="you@example.com"
@@ -183,6 +193,7 @@ function SignInPageContent() {
               className="w-full rounded-[20px] border border-[#e7dcd1] bg-white px-4 py-3 outline-none"
               required
             />
+
             <input
               type="password"
               placeholder="Password (min 8 characters)"
@@ -191,6 +202,7 @@ function SignInPageContent() {
               className="w-full rounded-[20px] border border-[#e7dcd1] bg-white px-4 py-3 outline-none"
               required
             />
+
             <input
               type="password"
               placeholder="Confirm password"
@@ -199,6 +211,7 @@ function SignInPageContent() {
               className="w-full rounded-[20px] border border-[#e7dcd1] bg-white px-4 py-3 outline-none"
               required
             />
+
             <div className="flex flex-wrap gap-3">
               <button
                 disabled={loading}
@@ -228,21 +241,5 @@ function SignInPageContent() {
         )}
       </div>
     </main>
-  );
-}
-
-export default function SignInPage() {
-  return (
-    <Suspense
-      fallback={
-        <main className="min-h-screen bg-[#ddd1c4] px-4 py-8 text-[#2f241d] md:px-6">
-          <div className="mx-auto max-w-xl rounded-[32px] border border-[#e7dcd1] bg-[#f7f2ec] p-6 shadow-[0_24px_90px_rgba(68,45,28,0.10)] md:p-8">
-            <div className="text-sm text-[#7f6a5a]">Loading sign in...</div>
-          </div>
-        </main>
-      }
-    >
-      <SignInPageContent />
-    </Suspense>
   );
 }
