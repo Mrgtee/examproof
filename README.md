@@ -1,272 +1,393 @@
 # ExamProof
 
-**ExamProof** is a verifiable assessment platform for high-stakes online exams such as recruitment tests, grant screening, admissions assessments, scholarship evaluations, and other timed selection workflows where trust, structure, and reviewability matter.
+**ExamProof** is a GenLayer-powered assessment platform for high-stakes evaluation workflows such as recruitment screening, grant reviews, fellowship selection, admissions assessments, scholarships, and other exam processes where **submission integrity, trusted grading, and defensible final results** matter.
 
-## Live App
+ExamProof is built around a **GenLayer Intelligent Contract** rather than a traditional off-chain exam backend. Recruiters manage exams from their wallet, candidates submit **gaslessly** through a relayer, and the contract acts as the source of truth for exam state, submission validation, grading, and finalization.
 
-**Production URL:** https://examproof.vercel.app
+## Live URL
+
+**Production App:** `https://examproof.vercel.app`
 
 ---
 
 ## Overview
 
-Most online exam platforms focus only on delivering questions and collecting answers. ExamProof goes further by giving recruiters and institutions a more structured and reviewable workflow for:
+Most online exam platforms rely entirely on off-chain infrastructure for candidate registration, submission handling, grading, and result storage. That may be acceptable for simple quizzes, but it becomes weaker in workflows where the outcome affects hiring, funding, admissions, or other serious decisions.
 
-- creating timed assessments
-- managing candidate access
-- collecting submissions
-- reviewing candidate answers
-- finalizing results
-- reopening old exams
-- tracking important assessment events through a GenLayer-backed processing layer
+ExamProof addresses that by moving the most important parts of the assessment lifecycle into a **GenLayer Intelligent Contract**. This makes the platform more suitable for environments where trust, traceability, and finality matter.
 
-ExamProof is designed for serious use cases where assessment integrity matters more than basic form collection.
+At a high level, ExamProof provides:
 
----
-
-## What Problem ExamProof Solves
-
-Online assessments often suffer from a trust gap.
-
-Many tools can deliver questions, but they do not provide a strong and traceable workflow for:
-
-- controlled candidate access
-- timed exam execution
-- submission integrity
-- result finalization
-- later review of outcomes
-
-ExamProof solves this by giving recruiters a complete exam lifecycle system with a verifiable backend process for critical actions.
+- recruiter-controlled exam creation
+- gasless candidate submissions
+- contract-backed grading workflows
+- verifiable result finalization
+- a stronger trust model for online assessments
 
 ---
 
-## Core Features
+## Core Idea
 
-### Recruiter Features
+The central idea behind ExamProof is simple:
 
-- Sign up and sign in securely
-- Create exams with:
-  - title
-  - description
-  - start time
-  - end time
-- Add questions
-- Add candidates
-- Share exam access through:
-  - direct candidate link
-  - UUID-based exam access
-- Reopen previously created exams
-- Review candidate submissions
-- View candidate submitted answers
-- View finalized scores and result status
+> keep the critical assessment logic inside a GenLayer Intelligent Contract.
 
-### Candidate Features
+The contract is responsible for:
 
-- Join exams through:
-  - direct recruiter-shared link
-  - manual UUID entry
-- Enter candidate details
-- Take the exam
-- Submit answers
+- exam metadata
+- lifecycle state
+- question storage
+- candidate registration
+- submission budget control
+- gasless submission authorization
+- objective grading
+- subjective grading flow
+- final result state
 
-### Result and Verification Features
-
-- Queue critical assessment actions as blockchain jobs
-- Process jobs privately through a worker
-- Track exam registration
-- Commit submission hashes
-- Finalize result states
-- Review blockchain job status
+This means the blockchain is not just an audit layer. It is part of the actual product logic.
 
 ---
 
-## How It Works
+# Key Features
 
-### 1. Recruiter Creates an Exam
+## Recruiter Wallet Control
 
-A recruiter signs in and creates a new assessment by entering the exam metadata:
+Recruiters connect an EVM wallet and use it to:
 
+- deploy a new exam contract
+- add questions
+- register candidates
+- fund submission budget
+- publish and open exams
+- grade submissions
+- finalize results
+
+The recruiter wallet is the operational owner of the exam workflow.
+
+## Gasless Candidate Submission
+
+Candidates do not need to connect a wallet.
+
+Instead, each candidate receives an invite flow containing:
+
+- exam contract address
+- candidate ID
+- access token
+
+Candidates complete the exam and submit through a relay route, while the relayer wallet pays gas. The contract still decides whether the submission is valid.
+
+## Contract-Backed Exam State
+
+Important exam state is stored in the GenLayer contract, including:
+
+- exam ID
+- title
+- description
+- start and end time
+- exam status
+- submission budget
+- submission fee per candidate
+- questions
+- registered candidates
+- submissions
+- scores
+- grading reasoning
+- final result status
+
+## Sponsored Submission Budget
+
+Recruiters sponsor candidate submissions by funding a submission budget for the exam.
+
+This makes gasless candidate participation possible while keeping a controlled model for resource usage.
+
+## Objective and Subjective Grading
+
+ExamProof supports both:
+
+### Objective grading
+Used for questions with clear answers, such as MCQs.
+
+### Subjective grading
+Used for essays, short responses, and reasoning-based questions.
+
+Objective grading is computed directly through contract logic. Subjective grading is processed through **GenLayer reasoning** and then written back into contract-backed state.
+
+## Invite-Based Candidate Access
+
+Candidates access exams through recruiter-generated invite links.
+
+Each invite contains the information needed for a gasless submission flow without forcing candidates to handle blockchain wallet UX directly.
+
+## Recruiter Workflow Tools
+
+The recruiter interface currently supports:
+
+- adding questions
+- registering candidates
+- exporting invite records
+- funding submission budget
+- refreshing exam state
+- grading individual submissions
+- grading submissions in bulk
+- finalizing results individually
+- finalizing graded results in bulk
+
+---
+
+# How ExamProof Works
+
+## 1. Recruiter Connects Wallet
+
+The recruiter connects a supported EVM wallet such as:
+
+- MetaMask
+- Rabby
+- OKX Wallet
+
+This wallet is used for recruiter-side exam management transactions.
+
+## 2. Recruiter Deploys an Exam Contract
+
+The recruiter creates a new exam by deploying the `ExamProofIC` contract on GenLayer.
+
+The contract is initialized with:
+
+- exam ID
 - title
 - description
 - start time
 - end time
+- relayer address
+- submission fee per candidate
 
-Once created, the exam receives a unique identifier and becomes the container for questions, candidate records, and submission flow.
+## 3. Recruiter Adds Questions
 
-### 2. Recruiter Adds Questions and Candidates
+Questions are stored in the contract.
 
-The recruiter builds the exam by:
+Supported question types currently include:
 
-- adding questions
-- adding candidate records
-- copying a candidate access link or UUID
+- `mcq`
+- `short_answer`
+- `essay`
 
-### 3. Candidate Joins and Submits
+Each question may include:
 
-Candidates enter through a separate candidate path.
+- prompt
+- type
+- points
+- options
+- correct answer
+- rubric
 
-They can either:
+## 4. Recruiter Registers Candidates
 
-- paste the exam UUID manually
-- or open a recruiter-shared candidate link
+Each candidate is registered with:
 
-After entering their details, they take the assessment and submit their answers.
+- candidate ID
+- full name
+- email
+- secret hash
 
-### 4. Submission Is Stored and Queued
+The recruiter side generates a raw invite token, hashes it, and stores only the hash in the contract.
 
-Submissions are stored in the application database, and a submission hash is generated.
+This means the recruiter must preserve the raw token, because it cannot be recovered from contract state later.
 
-The app then creates a queued blockchain job for critical actions such as:
+## 5. Recruiter Funds Submission Budget
 
-- exam registration
-- submission commitment
-- result finalization
+Before candidates can submit gaslessly, the recruiter must fund the submission budget.
 
-### 5. Private Worker Processes Jobs
+If the budget is not funded, candidate submissions are rejected.
 
-Instead of exposing sensitive signing logic in the frontend, ExamProof uses a **private worker** to process queued jobs securely.
+## 6. Recruiter Publishes and Opens the Exam
 
-This gives the platform a safer architecture for production-style use.
+The recruiter moves the exam through lifecycle states such as:
 
-### 6. Recruiter Reviews and Finalizes Results
+- `draft`
+- `scheduled`
+- `open`
+- `closed`
+- `graded`
+- `finalized`
 
-Recruiters and admins can:
+Candidates can only submit while the exam is **open**.
 
-- inspect submissions
-- review submitted answers
-- queue finalization
-- view objective score
-- view subjective score
-- view total score
-- view result status
+## 7. Candidate Opens Invite Link
 
-### 7. Reopen Old Exams
+The candidate opens the invite link and loads:
 
-Recruiters can return to past exams from the exams list without creating a new exam every time.
+- exam details
+- question list
+
+from contract state.
+
+The candidate answers the exam without connecting a wallet.
+
+## 8. Relay Submits Onchain
+
+The relay route sends `submit_exam_gasless` to the GenLayer contract using the relayer wallet.
+
+The contract verifies:
+
+- the exam is open
+- the candidate exists
+- the candidate is active
+- the candidate has not already submitted
+- the submission budget is sufficient
+- the submitted token matches the stored secret hash
+
+If valid, the submission is recorded.
+
+## 9. Contract Handles Grading
+
+Objective grading is computed from submitted answers.
+
+Subjective grading is triggered through GenLayer reasoning and stored in the submission record.
+
+## 10. Recruiter Finalizes Results
+
+After grading, the recruiter finalizes the result state for the candidate.
+
+Final result data includes:
+
+- objective score
+- subjective score
+- total score
+- grading reasoning
+- result status
 
 ---
 
-## GenLayer Integration
+# What Runs on GenLayer
 
-ExamProof uses **GenLayer Intelligent Contracts** as its trust layer for critical assessment events.
+The following core parts of ExamProof are GenLayer-backed:
 
-Instead of using blockchain as a cosmetic add-on, the platform routes important workflow transitions through a GenLayer-backed processing flow.
-
-### GenLayer-backed actions include:
-
-- **Exam registration**
-  - when a recruiter creates an exam, the system can register that exam state through a queued blockchain job
-
-- **Submission commitment**
-  - when a candidate submits answers, the system generates a submission hash and commits that state through the job flow
-
-- **Result finalization**
-  - when a result is finalized, the final scoring state can be processed through the GenLayer-backed worker flow
-
-### Why this matters
-
-This architecture improves trust in how critical exam events are handled.
-
-The public app remains the operational interface, while the GenLayer-backed worker and contract layer strengthen integrity around:
-
-- exam state changes
-- submission commitment
+- exam creation
+- contract ownership
+- question storage
+- candidate registration
+- relayer authorization
+- submission budget tracking
+- gasless submission validation
+- objective grading
+- subjective grading flow
+- submission records
 - final result state
 
 ---
 
-## Architecture
+# What Makes ExamProof Work
 
-ExamProof is built as a multi-part system:
+ExamProof combines four main layers:
 
-### Frontend / App Layer
-- **Next.js**
-- recruiter UI
-- candidate UI
-- documentation page
-- dashboard and exam management pages
+## 1. GenLayer Intelligent Contract
 
-### Data Layer
-- **Supabase**
-- authentication
-- database
-- candidate records
-- exam records
-- submissions
-- blockchain job queue
+The `ExamProofIC` contract defines:
 
-### Verification / Job Layer
-- **Private worker**
-- processes queued blockchain jobs
-- keeps sensitive credentials out of the frontend
+- storage
+- permissions
+- lifecycle rules
+- candidate verification
+- grading flow
+- final state transitions
 
-### Trust Layer
-- **GenLayer Intelligent Contract**
-- used for verifiable assessment state transitions
+## 2. Frontend Application
 
----
+The frontend provides the recruiter and candidate interfaces for:
 
-## Tech Stack
+- exam creation
+- question entry
+- candidate management
+- invite handling
+- candidate access
+- submission
+- grading and finalization
 
-- **Next.js**
-- **React**
-- **TypeScript**
-- **Tailwind CSS**
-- **Supabase**
-- **GenLayer**
-- **Vercel** for frontend deployment
-- **Railway** or similar service for worker deployment
+## 3. Relayer Service
 
----
+The relay route allows candidates to submit without a wallet.
 
-## Main User Flows
+The relayer:
 
-## Recruiter Flow
+- signs and sends the candidate transaction
+- pays gas
+- returns transaction outcome
+- verifies onchain state when needed
 
-1. Open landing page
-2. Sign in or create account
-3. Create exam
-4. Add questions
-5. Add candidates
-6. Share candidate link or UUID
-7. Review submissions
-8. Finalize results
-9. Reopen old exams later
+The relayer does **not** decide submission validity. The contract does.
 
-## Candidate Flow
+## 4. Invite Token Model
 
-1. Open landing page or recruiter-shared link
-2. Go to candidate access page
-3. Enter UUID or use direct link
-4. Enter candidate details
-5. Answer questions
-6. Submit exam
+Candidate access is protected by a token-based model:
+
+- raw token generated off-chain
+- hash stored onchain
+- candidate submits raw token
+- contract verifies the hash
+
+This supports a gasless candidate experience without exposing the stored credential directly in contract state.
 
 ---
 
-## Key Pages
+# Architecture
 
-- `/` — Landing page
-- `/auth/sign-in` — Recruiter authentication
-- `/recruiter/create-exam` — Exam registration page
-- `/recruiter/exams/[examId]` — Exam details and management
-- `/candidate` — Candidate entry page
-- `/candidate/[examId]` — Candidate exam page
-- `/dashboard` — Recruiter dashboard
-- `/dashboard/exams` — Reopen past exams
-- `/dashboard/jobs` — Blockchain jobs view
-- `/dashboard/results` — Result page
-- `/admin/finalize` — Finalization page
-- `/docs` — Platform guide
+## Frontend
+
+- Next.js App Router frontend
+- recruiter pages
+- candidate pages
+- relay API route
+- docs page
+- landing page
+
+## Contract Layer
+
+- `ExamProofIC` GenLayer Intelligent Contract
+- direct tests
+- integration tests
+
+## Relay Layer
+
+- relayer wallet private key stored in server environment variables
+- relay endpoint submits candidate transactions to GenLayer
+
+## Auth and Session Helpers
+
+Some authentication-related pieces may still exist for dashboard or session handling, but **exam logic itself is no longer driven by Supabase tables**.
+
+ExamProof is now **GenLayer-first**, with the contract as the source of truth for exam workflows.
 
 ---
 
-## Environment Variables
+# Project Structure
 
-## Frontend App
+```text
+app-web/
+  public/
+    contracts/
+      examproof_ic.py
+  src/
+    app/
+      page.tsx
+      docs/page.tsx
+      candidate/page.tsx
+      candidate/[examId]/page.tsx
+      recruiter/create-exam/page.tsx
+      recruiter/exams/[examId]/page.tsx
+      api/relay/submit/route.ts
+    components/
+      ExamProofLandingPage.tsx
+      RecruiterWalletConnect.tsx
+      QuestionEditor.tsx
+      CandidateListEditor.tsx
+    lib/
+      genlayer.ts
 
-Create an `.env.local` file inside `app-web`:
+contracts/
+  examproof_ic.py
 
-```env
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+tests/
+  direct/
+    test_examproof_ic.py
+  integration/
+    test_examproof_ic_gasless.py
+    test_examproof_ic_subjective.py
