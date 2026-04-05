@@ -40,7 +40,6 @@ async function verifySubmissionExists(
       address: examAddress,
       functionName: "get_result",
       args: [candidateId],
-      stateStatus: "accepted",
     });
 
     if (result && typeof result === "object") {
@@ -63,14 +62,22 @@ export async function POST(req: Request) {
     const answersJson = body.answersJson as string | undefined;
     const submittedAt = body.submittedAt as string | undefined;
 
-    if (!examAddress || !candidateId || !candidateToken || !answersJson || !submittedAt) {
+    if (
+      !examAddress ||
+      !candidateId ||
+      !candidateToken ||
+      !answersJson ||
+      !submittedAt
+    ) {
       return NextResponse.json(
         { error: "Missing required submission fields." },
         { status: 400 }
       );
     }
 
-    const relayerPrivateKey = getEnv("EXAMPROOF_RELAYER_PRIVATE_KEY") as HexAddress;
+    const relayerPrivateKey = getEnv(
+      "EXAMPROOF_RELAYER_PRIVATE_KEY"
+    ) as HexAddress;
     const relayerAccount = privateKeyToAccount(relayerPrivateKey);
 
     const client = createClient({
@@ -93,7 +100,9 @@ export async function POST(req: Request) {
       interval: 5000,
     });
 
-    if (receipt.txExecutionResultName === ExecutionResult.FINISHED_WITH_RETURN) {
+    if (
+      receipt.txExecutionResultName === ExecutionResult.FINISHED_WITH_RETURN
+    ) {
       return NextResponse.json({
         ok: true,
         txHash,
@@ -104,7 +113,12 @@ export async function POST(req: Request) {
     // Fallback: sometimes the receipt can look inconclusive even though
     // the contract state already changed. Verify directly from contract state.
     for (let i = 0; i < 3; i++) {
-      const verified = await verifySubmissionExists(client, examAddress, candidateId);
+      const verified = await verifySubmissionExists(
+        client,
+        examAddress,
+        candidateId
+      );
+
       if (verified) {
         return NextResponse.json({
           ok: true,
@@ -129,7 +143,8 @@ export async function POST(req: Request) {
   } catch (error) {
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Relay submission failed.",
+        error:
+          error instanceof Error ? error.message : "Relay submission failed.",
       },
       { status: 500 }
     );

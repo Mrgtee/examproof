@@ -7,6 +7,7 @@ import {
   type DecodedDeployData,
   type GenLayerChain,
   type TransactionHash,
+  type CalldataEncodable,
 } from "genlayer-js/types";
 
 declare global {
@@ -168,7 +169,7 @@ export async function deployExamContract(params: {
       endTime,
       relayerAddress.toLowerCase(),
       submissionFeePerCandidate,
-    ],
+    ] as CalldataEncodable[],
   })) as TransactionHash;
 
   const receipt = await client.waitForTransactionReceipt({
@@ -209,7 +210,7 @@ export async function contractRead<T>({
 }: {
   address: HexAddress;
   functionName: string;
-  args?: unknown[];
+  args?: CalldataEncodable[];
 }): Promise<T> {
   const client = createReadClient();
 
@@ -217,7 +218,6 @@ export async function contractRead<T>({
     address,
     functionName,
     args,
-    stateStatus: "accepted",
   });
 
   return result as T;
@@ -227,7 +227,7 @@ export async function contractWrite(params: {
   recruiter: HexAddress;
   address: HexAddress;
   functionName: string;
-  args?: unknown[];
+  args?: CalldataEncodable[];
 }) {
   const { recruiter, address, functionName, args = [] } = params;
 

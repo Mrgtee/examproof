@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import type { CalldataEncodable } from "genlayer-js/types";
 import QuestionEditor from "@/components/QuestionEditor";
 import CandidateListEditor from "@/components/CandidateListEditor";
 import RecruiterWalletConnect from "@/components/RecruiterWalletConnect";
@@ -264,7 +265,7 @@ export default function RecruiterExamDetailsPage() {
   async function runWrite(
     actionLabel: string,
     functionName: string,
-    args: unknown[],
+    args: CalldataEncodable[],
     successMessage: string
   ) {
     if (!wallet) {
@@ -312,7 +313,7 @@ export default function RecruiterExamDetailsPage() {
         question.options || [],
         question.correctAnswer || "",
         question.rubric || "",
-      ],
+      ] as CalldataEncodable[],
       "Question added successfully."
     );
   }
@@ -343,7 +344,7 @@ export default function RecruiterExamDetailsPage() {
           candidate.fullName,
           candidate.email.trim().toLowerCase(),
           secretHash,
-        ],
+        ] as CalldataEncodable[],
       });
 
       const inviteUrl = `${window.location.origin}/candidate/${examAddress}?candidateId=${encodeURIComponent(
@@ -435,28 +436,28 @@ export default function RecruiterExamDetailsPage() {
     await runWrite(
       "fund budget",
       "fund_submission_budget",
-      [units],
+      [units] as CalldataEncodable[],
       "Submission budget funded successfully."
     );
   }
 
   async function publishExam() {
-    await runWrite("publish exam", "publish_exam", [], "Exam published successfully.");
+    await runWrite("publish exam", "publish_exam", [] as CalldataEncodable[], "Exam published successfully.");
   }
 
   async function openExam() {
-    await runWrite("open exam", "open_exam", [], "Exam opened successfully.");
+    await runWrite("open exam", "open_exam", [] as CalldataEncodable[], "Exam opened successfully.");
   }
 
   async function closeExam() {
-    await runWrite("close exam", "close_exam", [], "Exam closed successfully.");
+    await runWrite("close exam", "close_exam", [] as CalldataEncodable[], "Exam closed successfully.");
   }
 
   async function gradeSubmission(candidateId: string) {
     await runWrite(
       `grade ${candidateId}`,
       "grade_subjective_submission",
-      [candidateId],
+      [candidateId] as CalldataEncodable[],
       "Subjective grading completed."
     );
   }
@@ -465,7 +466,7 @@ export default function RecruiterExamDetailsPage() {
     await runWrite(
       `finalize ${candidateId}`,
       "finalize_result",
-      [candidateId, "finalized"],
+      [candidateId, "finalized"] as CalldataEncodable[],
       "Result finalized successfully."
     );
   }
@@ -490,7 +491,7 @@ export default function RecruiterExamDetailsPage() {
           recruiter: wallet,
           address: examAddress,
           functionName: "grade_subjective_submission",
-          args: [submission.candidate_id],
+          args: [submission.candidate_id] as CalldataEncodable[],
         });
       }
 
@@ -525,7 +526,7 @@ export default function RecruiterExamDetailsPage() {
           recruiter: wallet,
           address: examAddress,
           functionName: "finalize_result",
-          args: [submission.candidate_id, "finalized"],
+          args: [submission.candidate_id, "finalized"] as CalldataEncodable[],
         });
       }
 

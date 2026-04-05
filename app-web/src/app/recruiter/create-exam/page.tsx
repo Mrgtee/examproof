@@ -2,10 +2,7 @@
 
 import { useMemo, useState } from "react";
 import RecruiterWalletConnect from "@/components/RecruiterWalletConnect";
-import {
-  deployExamContract,
-  type HexAddress,
-} from "@/lib/genlayer";
+import { deployExamContract, type HexAddress } from "@/lib/genlayer";
 
 function makeExamId() {
   return `EXAM-${Date.now()}`;
@@ -57,12 +54,13 @@ export default function CreateExamPage() {
       );
 
       window.location.href = `/recruiter/exams/${deployment.contractAddress}`;
-    console.error("Deploy exam failed:", error);
+    } catch (error) {
+      console.error("Deploy exam failed:", error);
       setResponse(
         error instanceof Error
-           ? `Failed to deploy exam contract: ${error.message}`
-           : "Failed to deploy exam contract."
-          );
+          ? `Failed to deploy exam contract: ${error.message}`
+          : "Failed to deploy exam contract."
+      );
     } finally {
       setLoading(false);
     }
