@@ -56,8 +56,8 @@ export default function RecruiterWalletConnect({ onConnected }: Props) {
       ) : (
         <div className="mt-3 space-y-3">
           <p className="text-sm text-[#7f6a5a]">
-            Connect the recruiter wallet. This wallet will pay gas for exam creation
-            and management actions.
+            Connect an injected EVM wallet such as OKX Wallet, Rabby, or MetaMask.
+            This wallet will pay gas for exam creation and management actions.
           </p>
 
           <button

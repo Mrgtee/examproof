@@ -12,17 +12,79 @@ import {
 
 declare global {
   interface Window {
-    ethereum?: {
-      request: (args: { method: string; params?: unknown[] }) => Promise<any>;
+    ethereum?: any;
+    okxwallet?: {
+      ethereum?: any;
     };
   }
 }
 
 export type HexAddress = `0x${string}`;
 
+type InjectedProvider = {
+  request: (args: { method: string; params?: unknown[] }) => Promise<any>;
+  isMetaMask?: boolean;
+  isRabby?: boolean;
+  isOkxWallet?: boolean;
+  providers?: InjectedProvider[];
+};
+
 export const RELAYER_ADDRESS =
   (process.env.NEXT_PUBLIC_EXAMPROOF_RELAYER_ADDRESS as HexAddress | undefined) ??
   ("0x0000000000000000000000000000000000000000" as HexAddress);
+
+function getInjectedProviders(): InjectedProvider[] {
+  if (typeof window === "undefined") return [];
+
+  const found: InjectedProvider[] = [];
+
+  const pushIfValid = (provider: any) => {
+    if (
+      provider &&
+      typeof provider.request === "function" &&
+      !found.includes(provider)
+    ) {
+      found.push(provider);
+    }
+  };
+
+  if (window.okxwallet?.ethereum) {
+    pushIfValid(window.okxwallet.ethereum);
+  }
+
+  if (window.ethereum?.providers && Array.isArray(window.ethereum.providers)) {
+    for (const provider of window.ethereum.providers) {
+      pushIfValid(provider);
+    }
+  }
+
+  if (window.ethereum) {
+    pushIfValid(window.ethereum);
+  }
+
+  return found;
+}
+
+function pickBestProvider(): InjectedProvider {
+  const providers = getInjectedProviders();
+
+  if (providers.length === 0) {
+    throw new Error(
+      "No injected wallet found. Install OKX Wallet, Rabby, MetaMask, or another EVM wallet."
+    );
+  }
+
+  const okx = providers.find((provider) => provider.isOkxWallet);
+  if (okx) return okx;
+
+  const rabby = providers.find((provider) => provider.isRabby);
+  if (rabby) return rabby;
+
+  const metamask = providers.find((provider) => provider.isMetaMask);
+  if (metamask) return metamask;
+
+  return providers[0];
+}
 
 export function createReadClient() {
   return createClient({
@@ -31,23 +93,19 @@ export function createReadClient() {
 }
 
 export function createWriteClient(account: HexAddress) {
-  if (!window.ethereum) {
-    throw new Error("No wallet provider found. Install MetaMask or another injected wallet.");
-  }
+  const provider = pickBestProvider();
 
   return createClient({
     chain: studionet,
     account,
-    provider: window.ethereum,
+    provider,
   });
 }
 
 async function requestAccounts(): Promise<HexAddress> {
-  if (!window.ethereum) {
-    throw new Error("No wallet provider found. Install MetaMask or another injected wallet.");
-  }
+  const provider = pickBestProvider();
 
-  const accounts = (await window.ethereum.request({
+  const accounts = (await provider.request({
     method: "eth_requestAccounts",
   })) as string[];
 
@@ -60,19 +118,17 @@ async function requestAccounts(): Promise<HexAddress> {
 }
 
 async function ensureStudionet() {
-  if (!window.ethereum) {
-    throw new Error("No wallet provider found.");
-  }
+  const provider = pickBestProvider();
 
   const chainIdHex = "0x" + Number(studionet.id).toString(16);
 
   try {
-    await window.ethereum.request({
+    await provider.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: chainIdHex }],
     });
   } catch {
-    await window.ethereum.request({
+    await provider.request({
       method: "wallet_addEthereumChain",
       params: [
         {
