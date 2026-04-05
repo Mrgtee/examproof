@@ -20,37 +20,37 @@ export default function ExamProofLandingPage() {
   const steps = [
     {
       no: "01",
-      title: "Recruiters create assessments",
-      body: "Recruiters sign in, define the exam window, add candidates, and prepare the questions for a verifiable assessment flow.",
+      title: "Recruiters create contract-backed assessments",
+      body: "Recruiters connect a wallet, deploy an exam contract, define the exam window, add candidates, and prepare questions for a GenLayer-backed assessment flow.",
     },
     {
       no: "02",
-      title: "Candidates join with UUID or direct link",
-      body: "Candidates can paste the exam UUID manually or open a recruiter-shared candidate link that already contains the exam identifier.",
+      title: "Candidates join with invite link",
+      body: "Candidates open a recruiter-shared invite link containing the exam contract address, candidate ID, and access token for gasless participation.",
     },
     {
       no: "03",
-      title: "Submissions are queued for on-chain trust",
-      body: "Submissions are recorded in the app, then blockchain jobs are processed privately for safer GenLayer-backed verification.",
+      title: "Submissions are verified through GenLayer",
+      body: "Candidate submissions are sent through a relayer, then accepted, graded, and finalized through the GenLayer Intelligent Contract workflow.",
     },
   ];
 
   const highlights = [
     {
       title: "Recruiter-first workflow",
-      body: "Clean exam creation flow for recruiters with candidate management and shareable exam access.",
+      body: "Recruiters deploy and manage exams from their wallet, with candidate management, question setup, grading, and finalization in one flow.",
     },
     {
       title: "Candidate-friendly entry",
-      body: "Candidates can join by UUID or by a direct exam link shared by the recruiter.",
+      body: "Candidates do not need a wallet. They access the exam through a recruiter-shared invite link and submit gaslessly.",
     },
     {
       title: "GenLayer-backed trust",
-      body: "Assessment actions can be committed and finalized through a safer queued blockchain workflow.",
+      body: "Core exam state, submission acceptance, grading flow, and final results are handled through GenLayer contract-backed logic.",
     },
     {
       title: "Clear operational docs",
-      body: "A dedicated docs page explains the platform, the flows, and how to navigate the system.",
+      body: "A dedicated docs page explains what ExamProof is, how the product works, and the exact recruiter and candidate steps.",
     },
   ];
 
@@ -121,7 +121,7 @@ export default function ExamProofLandingPage() {
               textDecoration: "none",
             }}
           >
-            Recruiter sign in
+            Recruiter access
           </Link>
         </header>
 
@@ -148,9 +148,8 @@ export default function ExamProofLandingPage() {
                 </h1>
                 <p className="mt-6 max-w-xl text-base leading-8 text-white/78 md:text-lg">
                   ExamProof helps recruiters, grant programs, and admissions
-                  teams run synchronized assessments with stronger timing
-                  control, submission integrity, and verifiable score
-                  finalization.
+                  teams run contract-backed assessments with stronger control
+                  over submissions, grading trust, and final result integrity.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-4">
                   <Link
@@ -162,7 +161,7 @@ export default function ExamProofLandingPage() {
                       textDecoration: "none",
                     }}
                   >
-                    Recruiter sign in
+                    Recruiter access
                   </Link>
                   <Link
                     href="/candidate"
@@ -208,7 +207,7 @@ export default function ExamProofLandingPage() {
               100%
             </div>
             <div className="mt-2 text-white/80">
-              Window synchronization focus
+              Contract-backed workflow focus
             </div>
 
             <div className="mt-10 grid grid-cols-2 gap-6 text-sm">
@@ -235,16 +234,17 @@ export default function ExamProofLandingPage() {
               style={{ color: palette.muted }}
             >
               ExamProof is built for teams that need more than a standard CBT
-              platform. We focus on high-stakes assessment flows where timing,
-              grading trust, and final result integrity actually matter.
+              platform. We focus on high-stakes assessment flows where
+              submission integrity, grading trust, and final result
+              defensibility actually matter.
             </p>
             <p
               className="mt-4 max-w-2xl text-[15px] leading-8 md:text-base"
               style={{ color: palette.muted }}
             >
-              Recruiters create and manage exams. Candidates join by UUID or
-              direct link. The system records a verifiable trail for key
-              assessment events.
+              Recruiters manage exams from their wallet. Candidates join through
+              invite links and submit gaslessly. The system keeps the important
+              assessment logic inside a GenLayer-backed contract workflow.
             </p>
           </div>
 
@@ -385,8 +385,9 @@ export default function ExamProofLandingPage() {
             </h3>
             <p className="mt-5 max-w-2xl text-[15px] leading-8 text-white/76 md:text-base">
               Built for recruitment, grants, fellowships, bootcamps,
-              admissions, and other workflows where synchronized timing,
-              trusted grading, and defensible results are part of the product.
+              admissions, and other workflows where trusted submissions,
+              defensible grading, and verifiable final results are part of the
+              product.
             </p>
           </div>
 
@@ -405,7 +406,7 @@ export default function ExamProofLandingPage() {
                 href="/recruiter/create-exam"
                 className="block rounded-[18px] bg-white px-4 py-3 text-sm font-medium"
               >
-                Recruiter sign in / sign up
+                Recruiter access
               </Link>
               <Link
                 href="/candidate"

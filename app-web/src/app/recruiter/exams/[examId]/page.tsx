@@ -1,140 +1,298 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 import QuestionEditor from "@/components/QuestionEditor";
 import CandidateListEditor from "@/components/CandidateListEditor";
+import RecruiterWalletConnect from "@/components/RecruiterWalletConnect";
+import {
+  contractRead,
+  contractWrite,
+  getSavedRecruiterWallet,
+  type HexAddress,
+} from "@/lib/genlayer";
 
-interface QuestionRecord {
-  id: string;
+interface ExamView {
+  owner: string;
+  relayer: string;
+  exam_id: string;
+  title: string;
+  description: string;
+  start_time: string;
+  end_time: string;
+  status: string;
+  submission_budget: number;
+  submission_fee_per_candidate: number;
+  question_count: number;
+  candidate_count: number;
+  submission_count: number;
+}
+
+interface QuestionView {
   prompt: string;
   question_type: string;
   points: number;
+  options: string[];
+  rubric: string;
 }
 
-interface CandidateRecord {
-  id: string;
+interface CandidateView {
+  candidate_id: string;
   full_name: string;
   email: string;
+  is_active: boolean;
+  has_submitted: boolean;
 }
 
-interface SubmissionRecord {
-  id: string;
+interface SubmissionView {
   candidate_id: string;
-  answers: Record<string, string> | null;
-  final_submission_hash: string | null;
-  status: string | null;
-  result_status: string | null;
-  objective_score: number | null;
-  subjective_score: number | null;
-  score: number | null;
-  submitted_at: string | null;
-  created_at: string;
+  answers_json: string;
+  objective_score: number;
+  subjective_score: number;
+  total_score: number;
+  result_status: string;
+  submitted_at: string;
+  grading_reasoning: string;
 }
 
-interface BlockchainJobRecord {
-  id: string;
-  job_type: string;
-  status: string;
-  candidate_id: string | null;
-  created_at: string;
+interface CandidateInviteRecord {
+  candidateId: string;
+  fullName: string;
+  email: string;
+  token: string;
+  inviteUrl: string;
+  createdAt: string;
+}
+
+function randomId(prefix: string) {
+  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+async function sha256Hex(input: string) {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function inviteStorageKey(examAddress: string) {
+  return `examproof_invites_${examAddress.toLowerCase()}`;
+}
+
+function downloadTextFile(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function RecruiterExamDetailsPage() {
   const params = useParams();
   const rawExamId = params?.examId;
-  const examId =
+  const examAddress =
     typeof rawExamId === "string"
-      ? rawExamId
+      ? (rawExamId as HexAddress)
       : Array.isArray(rawExamId)
-        ? rawExamId[0]
-        : "";
+        ? (rawExamId[0] as HexAddress)
+        : ("" as HexAddress);
 
-  const isValidExamId =
-    !!examId && examId !== "undefined" && examId !== "null";
+  const isValidExamAddress =
+    !!examAddress &&
+    examAddress !== ("undefined" as HexAddress) &&
+    examAddress !== ("null" as HexAddress) &&
+    examAddress.startsWith("0x");
 
-  const [questions, setQuestions] = useState<QuestionRecord[]>([]);
-  const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
-  const [submissions, setSubmissions] = useState<SubmissionRecord[]>([]);
-  const [jobs, setJobs] = useState<BlockchainJobRecord[]>([]);
+  const [wallet, setWallet] = useState<HexAddress | null>(null);
+  const [exam, setExam] = useState<ExamView | null>(null);
+  const [questions, setQuestions] = useState<QuestionView[]>([]);
+  const [candidates, setCandidates] = useState<CandidateView[]>([]);
+  const [submissions, setSubmissions] = useState<SubmissionView[]>([]);
+  const [invites, setInvites] = useState<CandidateInviteRecord[]>([]);
   const [message, setMessage] = useState("");
   const [candidateExamLink, setCandidateExamLink] = useState("");
+  const [budgetUnits, setBudgetUnits] = useState("1");
+  const [busyAction, setBusyAction] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    if (isValidExamId && typeof window !== "undefined") {
-      setCandidateExamLink(`${window.location.origin}/candidate/${examId}`);
+    const saved = getSavedRecruiterWallet();
+    if (saved) {
+      setWallet(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isValidExamAddress && typeof window !== "undefined") {
+      setCandidateExamLink(`${window.location.origin}/candidate/${examAddress}`);
     } else {
       setCandidateExamLink("");
     }
-  }, [examId, isValidExamId]);
+  }, [examAddress, isValidExamAddress]);
 
-  async function loadData() {
-    if (!isValidExamId) {
-      setMessage("Invalid exam ID. Please create a new exam again.");
+  useEffect(() => {
+    if (typeof window === "undefined" || !isValidExamAddress) return;
+    try {
+      const raw = window.localStorage.getItem(inviteStorageKey(examAddress));
+      if (!raw) {
+        setInvites([]);
+        return;
+      }
+      const parsed = JSON.parse(raw) as CandidateInviteRecord[];
+      setInvites(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setInvites([]);
+    }
+  }, [examAddress, isValidExamAddress]);
+
+  function persistInvites(nextInvites: CandidateInviteRecord[]) {
+    setInvites(nextInvites);
+    if (typeof window !== "undefined" && isValidExamAddress) {
+      window.localStorage.setItem(
+        inviteStorageKey(examAddress),
+        JSON.stringify(nextInvites)
+      );
+    }
+  }
+
+  async function loadData(silent = false) {
+    if (!isValidExamAddress) {
+      setMessage("Invalid contract address. Please create a new exam again.");
       return;
     }
 
-    const { data: questionData, error: questionError } = await supabase
-      .from("questions")
-      .select("id, prompt, question_type, points")
-      .eq("exam_id", examId)
-      .order("created_at", { ascending: true });
+    try {
+      if (!silent) {
+        setRefreshing(true);
+      }
 
-    if (questionError) {
-      setMessage(questionError.message);
-      return;
+      const [examData, questionData, candidateData, submissionData] = await Promise.all([
+        contractRead<ExamView>({
+          address: examAddress,
+          functionName: "get_exam",
+        }),
+        contractRead<QuestionView[]>({
+          address: examAddress,
+          functionName: "get_questions",
+        }),
+        contractRead<CandidateView[]>({
+          address: examAddress,
+          functionName: "get_candidates",
+        }),
+        contractRead<SubmissionView[]>({
+          address: examAddress,
+          functionName: "get_submissions",
+        }),
+      ]);
+
+      setExam(examData);
+      setQuestions(questionData || []);
+      setCandidates(candidateData || []);
+      setSubmissions(submissionData || []);
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Failed to load contract state."
+      );
+    } finally {
+      if (!silent) {
+        setRefreshing(false);
+      }
     }
-
-    const { data: candidateData, error: candidateError } = await supabase
-      .from("candidates")
-      .select("id, full_name, email")
-      .eq("exam_id", examId)
-      .order("created_at", { ascending: true });
-
-    if (candidateError) {
-      setMessage(candidateError.message);
-      return;
-    }
-
-    const { data: submissionData, error: submissionError } = await supabase
-      .from("submissions")
-      .select(
-        "id, candidate_id, answers, final_submission_hash, status, result_status, objective_score, subjective_score, score, submitted_at, created_at"
-      )
-      .eq("exam_id", examId)
-      .order("created_at", { ascending: false });
-
-    if (submissionError) {
-      setMessage(submissionError.message);
-      return;
-    }
-
-    const { data: jobData, error: jobError } = await supabase
-      .from("blockchain_jobs")
-      .select("id, job_type, status, candidate_id, created_at")
-      .eq("exam_id", examId)
-      .order("created_at", { ascending: false });
-
-    if (jobError) {
-      setMessage(jobError.message);
-      return;
-    }
-
-    setQuestions(questionData || []);
-    setCandidates(candidateData || []);
-    setSubmissions((submissionData as SubmissionRecord[]) || []);
-    setJobs(jobData || []);
   }
 
   useEffect(() => {
-    if (isValidExamId) {
-      loadData();
+    if (isValidExamAddress) {
+      void loadData();
     } else {
-      setMessage("Invalid exam ID. Please create a new exam again.");
+      setMessage("Invalid contract address. Please create a new exam again.");
     }
-  }, [examId, isValidExamId]);
+  }, [examAddress, isValidExamAddress]);
+
+  const canWrite = useMemo(() => !!wallet && isValidExamAddress, [wallet, isValidExamAddress]);
+
+  const gradedCount = useMemo(
+    () =>
+      submissions.filter(
+        (submission) =>
+          submission.result_status === "graded" ||
+          ((submission.subjective_score ?? 0) > 0 &&
+            submission.result_status !== "finalized")
+      ).length,
+    [submissions]
+  );
+
+  const finalizedCount = useMemo(
+    () => submissions.filter((submission) => submission.result_status === "finalized").length,
+    [submissions]
+  );
+
+  const submittedOnly = useMemo(
+    () =>
+      submissions.filter(
+        (submission) =>
+          submission.result_status !== "graded" &&
+          submission.result_status !== "finalized"
+      ),
+    [submissions]
+  );
+
+  const gradeableSubmissions = useMemo(
+    () =>
+      submissions.filter(
+        (submission) =>
+          submission.result_status !== "graded" &&
+          submission.result_status !== "finalized"
+      ),
+    [submissions]
+  );
+
+  const finalizableSubmissions = useMemo(
+    () =>
+      submissions.filter(
+        (submission) =>
+          submission.result_status === "graded" ||
+          ((submission.subjective_score ?? 0) > 0 &&
+            submission.result_status !== "finalized")
+      ),
+    [submissions]
+  );
+
+  async function runWrite(
+    actionLabel: string,
+    functionName: string,
+    args: unknown[],
+    successMessage: string
+  ) {
+    if (!wallet) {
+      setMessage("Connect the recruiter wallet first.");
+      return;
+    }
+
+    try {
+      setBusyAction(actionLabel);
+      setMessage("");
+
+      await contractWrite({
+        recruiter: wallet,
+        address: examAddress,
+        functionName,
+        args,
+      });
+
+      setMessage(successMessage);
+      await loadData(true);
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : `Failed to ${actionLabel}.`
+      );
+    } finally {
+      setBusyAction("");
+    }
+  }
 
   async function handleAddQuestion(question: {
     prompt: string;
@@ -144,52 +302,77 @@ export default function RecruiterExamDetailsPage() {
     rubric?: string;
     correctAnswer?: string;
   }) {
-    if (!isValidExamId) {
-      setMessage("Cannot add question because the exam ID is invalid.");
-      return;
-    }
-
-    const { error } = await supabase.from("questions").insert({
-      exam_id: examId,
-      prompt: question.prompt,
-      question_type: question.questionType,
-      points: question.points,
-      options: question.options || null,
-      rubric: question.rubric || null,
-      correct_answer: question.correctAnswer || null,
-    });
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    setMessage("Question added successfully.");
-    loadData();
+    await runWrite(
+      "add question",
+      "add_question",
+      [
+        question.prompt,
+        question.questionType,
+        question.points,
+        question.options || [],
+        question.correctAnswer || "",
+        question.rubric || "",
+      ],
+      "Question added successfully."
+    );
   }
 
   async function handleAddCandidate(candidate: {
     fullName: string;
     email: string;
   }) {
-    if (!isValidExamId) {
-      setMessage("Cannot add candidate because the exam ID is invalid.");
+    if (!wallet) {
+      setMessage("Connect the recruiter wallet first.");
       return;
     }
 
-    const { error } = await supabase.from("candidates").insert({
-      exam_id: examId,
-      full_name: candidate.fullName,
-      email: candidate.email.trim().toLowerCase(),
-    });
+    try {
+      setBusyAction("add candidate");
+      setMessage("");
 
-    if (error) {
-      setMessage(error.message);
-      return;
+      const candidateId = randomId("cand");
+      const token = crypto.randomUUID();
+      const secretHash = await sha256Hex(token);
+
+      await contractWrite({
+        recruiter: wallet,
+        address: examAddress,
+        functionName: "register_candidate",
+        args: [
+          candidateId,
+          candidate.fullName,
+          candidate.email.trim().toLowerCase(),
+          secretHash,
+        ],
+      });
+
+      const inviteUrl = `${window.location.origin}/candidate/${examAddress}?candidateId=${encodeURIComponent(
+        candidateId
+      )}&token=${encodeURIComponent(token)}`;
+
+      const newInvite: CandidateInviteRecord = {
+        candidateId,
+        fullName: candidate.fullName,
+        email: candidate.email.trim().toLowerCase(),
+        token,
+        inviteUrl,
+        createdAt: new Date().toISOString(),
+      };
+
+      const nextInvites = [newInvite, ...invites];
+      persistInvites(nextInvites);
+
+      setMessage(
+        "Candidate added and invite saved locally. Copy or export it from the Invite vault below."
+      );
+      await loadData(true);
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Failed to add candidate."
+      );
+    } finally {
+      setBusyAction("");
     }
-
-    setMessage("Candidate added successfully.");
-    loadData();
   }
 
   async function copyCandidateLink() {
@@ -206,25 +389,171 @@ export default function RecruiterExamDetailsPage() {
     }
   }
 
+  async function copyInvite(inviteUrl: string) {
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setMessage("Candidate invite link copied.");
+    } catch {
+      setMessage("Could not copy the invite link.");
+    }
+  }
+
+  function removeInvite(candidateId: string) {
+    const next = invites.filter((invite) => invite.candidateId !== candidateId);
+    persistInvites(next);
+    setMessage("Invite removed from local vault.");
+  }
+
+  function exportInvites() {
+    if (invites.length === 0) {
+      setMessage("No invites available to export.");
+      return;
+    }
+
+    const content = JSON.stringify(invites, null, 2);
+    downloadTextFile(
+      `examproof-invites-${examAddress.slice(0, 10)}.json`,
+      content
+    );
+    setMessage("Invite vault exported.");
+  }
+
   function getCandidateName(candidateId: string) {
     return (
-      candidates.find((candidate) => candidate.id === candidateId)?.full_name ||
+      candidates.find((candidate) => candidate.candidate_id === candidateId)?.full_name ||
       candidateId
     );
   }
 
+  async function fundBudget() {
+    const units = Number(budgetUnits);
+    if (!Number.isFinite(units) || units <= 0) {
+      setMessage("Enter a valid budget unit amount.");
+      return;
+    }
+
+    await runWrite(
+      "fund budget",
+      "fund_submission_budget",
+      [units],
+      "Submission budget funded successfully."
+    );
+  }
+
+  async function publishExam() {
+    await runWrite("publish exam", "publish_exam", [], "Exam published successfully.");
+  }
+
+  async function openExam() {
+    await runWrite("open exam", "open_exam", [], "Exam opened successfully.");
+  }
+
+  async function closeExam() {
+    await runWrite("close exam", "close_exam", [], "Exam closed successfully.");
+  }
+
+  async function gradeSubmission(candidateId: string) {
+    await runWrite(
+      `grade ${candidateId}`,
+      "grade_subjective_submission",
+      [candidateId],
+      "Subjective grading completed."
+    );
+  }
+
+  async function finalizeSubmission(candidateId: string) {
+    await runWrite(
+      `finalize ${candidateId}`,
+      "finalize_result",
+      [candidateId, "finalized"],
+      "Result finalized successfully."
+    );
+  }
+
+  async function gradeAllSubmitted() {
+    if (gradeableSubmissions.length === 0) {
+      setMessage("No submitted entries available to grade.");
+      return;
+    }
+
+    if (!wallet) {
+      setMessage("Connect the recruiter wallet first.");
+      return;
+    }
+
+    try {
+      setBusyAction("grade all");
+      setMessage("");
+
+      for (const submission of gradeableSubmissions) {
+        await contractWrite({
+          recruiter: wallet,
+          address: examAddress,
+          functionName: "grade_subjective_submission",
+          args: [submission.candidate_id],
+        });
+      }
+
+      setMessage(`Graded ${gradeableSubmissions.length} submission(s).`);
+      await loadData(true);
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Failed to grade all submissions."
+      );
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function finalizeAllGraded() {
+    if (finalizableSubmissions.length === 0) {
+      setMessage("No graded entries available to finalize.");
+      return;
+    }
+
+    if (!wallet) {
+      setMessage("Connect the recruiter wallet first.");
+      return;
+    }
+
+    try {
+      setBusyAction("finalize all");
+      setMessage("");
+
+      for (const submission of finalizableSubmissions) {
+        await contractWrite({
+          recruiter: wallet,
+          address: examAddress,
+          functionName: "finalize_result",
+          args: [submission.candidate_id, "finalized"],
+        });
+      }
+
+      setMessage(`Finalized ${finalizableSubmissions.length} submission(s).`);
+      await loadData(true);
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Failed to finalize all submissions."
+      );
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   function getStatusBadgeColor(status: string | null) {
-    if (
-      status === "completed" ||
-      status === "finalized" ||
-      status === "submitted"
-    ) {
+    if (status === "finalized") {
       return "bg-green-100 text-green-700";
     }
-    if (status === "processing" || status === "pending") {
+    if (status === "graded") {
+      return "bg-blue-100 text-blue-700";
+    }
+    if (status === "submitted" || status === "completed") {
       return "bg-yellow-100 text-yellow-700";
     }
-    if (status === "failed") {
+    if (status === "scheduled" || status === "pending" || status === "processing") {
+      return "bg-yellow-100 text-yellow-700";
+    }
+    if (status === "failed" || status === "closed") {
       return "bg-red-100 text-red-700";
     }
     return "bg-gray-100 text-gray-700";
@@ -242,11 +571,20 @@ export default function RecruiterExamDetailsPage() {
               Exam details
             </h1>
             <p className="mt-3 text-[15px] leading-7 text-[#7f6a5a]">
-              Manage questions, invited candidates, submissions, and finalized results.
+              Manage contract-owned questions, candidates, submission budget, grading,
+              and finalization.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => void loadData()}
+              disabled={refreshing}
+              className="rounded-full border border-[#e7dcd1] px-4 py-2 text-sm disabled:opacity-50"
+            >
+              {refreshing ? "Refreshing..." : "Refresh data"}
+            </button>
+
             <Link
               href="/recruiter/create-exam"
               className="rounded-full border border-[#e7dcd1] px-4 py-2 text-sm"
@@ -254,51 +592,299 @@ export default function RecruiterExamDetailsPage() {
               Create exam
             </Link>
             <Link
-              href="/dashboard/exams"
+              href="/"
               className="rounded-full border border-[#e7dcd1] px-4 py-2 text-sm"
             >
-              All exams
-            </Link>
-            <Link
-              href="/dashboard"
-              className="rounded-full border border-[#e7dcd1] px-4 py-2 text-sm"
-            >
-              Dashboard
+              Home
             </Link>
           </div>
         </div>
 
+        <div className="mb-6">
+          <RecruiterWalletConnect onConnected={setWallet} />
+        </div>
+
         {message && (
-          <div className="mb-6 rounded-[20px] border border-[#e7dcd1] bg-[#fffaf4] p-4 text-sm text-[#7f6a5a]">
+          <div className="mb-6 rounded-[20px] border border-[#e7dcd1] bg-[#fffaf4] p-4 text-sm text-[#7f6a5a] break-words">
             {message}
           </div>
         )}
 
         <div className="mb-8 rounded-[28px] border border-[#e7dcd1] bg-white p-6">
           <div className="text-xs uppercase tracking-[0.24em] text-[#7f6a5a]">
-            Candidate exam link
+            Contract address
           </div>
-          <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="break-all rounded-[18px] bg-[#fffaf4] px-4 py-3 text-sm text-[#7f6a5a]">
-              {candidateExamLink || "No valid exam link available yet."}
-            </div>
-            <button
-              onClick={copyCandidateLink}
-              disabled={!isValidExamId}
-              className="w-fit rounded-full bg-[#4a3124] px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
-            >
-              Copy link
-            </button>
+          <div className="mt-3 break-all rounded-[18px] bg-[#fffaf4] px-4 py-3 text-sm text-[#7f6a5a]">
+            {examAddress || "No valid contract address."}
           </div>
         </div>
 
-        {!isValidExamId ? (
+        {exam && (
+          <>
+            <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <div className="rounded-[24px] border border-[#e7dcd1] bg-white p-5">
+                <div className="text-xs uppercase tracking-[0.18em] text-[#7f6a5a]">
+                  Status
+                </div>
+                <div className="mt-3 text-2xl font-semibold">{exam.status}</div>
+              </div>
+
+              <div className="rounded-[24px] border border-[#e7dcd1] bg-white p-5">
+                <div className="text-xs uppercase tracking-[0.18em] text-[#7f6a5a]">
+                  Candidates
+                </div>
+                <div className="mt-3 text-2xl font-semibold">{candidates.length}</div>
+              </div>
+
+              <div className="rounded-[24px] border border-[#e7dcd1] bg-white p-5">
+                <div className="text-xs uppercase tracking-[0.18em] text-[#7f6a5a]">
+                  Submissions
+                </div>
+                <div className="mt-3 text-2xl font-semibold">{submissions.length}</div>
+              </div>
+
+              <div className="rounded-[24px] border border-[#e7dcd1] bg-white p-5">
+                <div className="text-xs uppercase tracking-[0.18em] text-[#7f6a5a]">
+                  Graded
+                </div>
+                <div className="mt-3 text-2xl font-semibold">{gradedCount}</div>
+              </div>
+
+              <div className="rounded-[24px] border border-[#e7dcd1] bg-white p-5">
+                <div className="text-xs uppercase tracking-[0.18em] text-[#7f6a5a]">
+                  Finalized
+                </div>
+                <div className="mt-3 text-2xl font-semibold">{finalizedCount}</div>
+              </div>
+            </div>
+
+            <div className="mb-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className="rounded-[28px] border border-[#e7dcd1] bg-white p-6">
+                <div className="text-xs uppercase tracking-[0.24em] text-[#7f6a5a]">
+                  Exam state
+                </div>
+                <div className="mt-4 space-y-3 text-sm text-[#7f6a5a]">
+                  <div>
+                    <span className="font-medium text-[#2f241d]">Title:</span> {exam.title}
+                  </div>
+                  <div>
+                    <span className="font-medium text-[#2f241d]">Description:</span>{" "}
+                    {exam.description || "-"}
+                  </div>
+                  <div>
+                    <span className="font-medium text-[#2f241d]">Exam ID:</span> {exam.exam_id}
+                  </div>
+                  <div>
+                    <span className="font-medium text-[#2f241d]">Status:</span> {exam.status}
+                  </div>
+                  <div>
+                    <span className="font-medium text-[#2f241d]">Start:</span> {exam.start_time}
+                  </div>
+                  <div>
+                    <span className="font-medium text-[#2f241d]">End:</span> {exam.end_time}
+                  </div>
+                  <div>
+                    <span className="font-medium text-[#2f241d]">Budget:</span>{" "}
+                    {exam.submission_budget}
+                  </div>
+                  <div>
+                    <span className="font-medium text-[#2f241d]">Fee per candidate:</span>{" "}
+                    {exam.submission_fee_per_candidate}
+                  </div>
+                  <div>
+                    <span className="font-medium text-[#2f241d]">Owner:</span>
+                    <div className="mt-1 break-all">{exam.owner}</div>
+                  </div>
+                  <div>
+                    <span className="font-medium text-[#2f241d]">Relayer:</span>
+                    <div className="mt-1 break-all">{exam.relayer}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[28px] border border-[#e7dcd1] bg-white p-6">
+                <div className="text-xs uppercase tracking-[0.24em] text-[#7f6a5a]">
+                  Recruiter actions
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <button
+                    onClick={publishExam}
+                    disabled={!canWrite || busyAction !== ""}
+                    className="rounded-full bg-[#4a3124] px-4 py-2 text-sm text-white disabled:opacity-50"
+                  >
+                    {busyAction === "publish exam" ? "Publishing..." : "Publish"}
+                  </button>
+
+                  <button
+                    onClick={openExam}
+                    disabled={!canWrite || busyAction !== ""}
+                    className="rounded-full bg-[#4a3124] px-4 py-2 text-sm text-white disabled:opacity-50"
+                  >
+                    {busyAction === "open exam" ? "Opening..." : "Open"}
+                  </button>
+
+                  <button
+                    onClick={closeExam}
+                    disabled={!canWrite || busyAction !== ""}
+                    className="rounded-full bg-[#4a3124] px-4 py-2 text-sm text-white disabled:opacity-50"
+                  >
+                    {busyAction === "close exam" ? "Closing..." : "Close"}
+                  </button>
+                </div>
+
+                <div className="mt-6">
+                  <label className="mb-2 block text-sm font-medium">Fund submission budget</label>
+                  <div className="flex flex-wrap gap-3">
+                    <input
+                      type="number"
+                      min="1"
+                      value={budgetUnits}
+                      onChange={(e) => setBudgetUnits(e.target.value)}
+                      className="w-full max-w-[220px] rounded-[18px] border border-[#e7dcd1] bg-white px-4 py-3 outline-none"
+                    />
+                    <button
+                      onClick={fundBudget}
+                      disabled={!canWrite || busyAction !== ""}
+                      className="rounded-full bg-[#4a3124] px-4 py-2 text-sm text-white disabled:opacity-50"
+                    >
+                      {busyAction === "fund budget" ? "Funding..." : "Fund budget"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-6">
+                  <div className="text-xs uppercase tracking-[0.24em] text-[#7f6a5a]">
+                    Bulk actions
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-3">
+                    <button
+                      onClick={gradeAllSubmitted}
+                      disabled={!canWrite || busyAction !== "" || gradeableSubmissions.length === 0}
+                      className="rounded-full bg-[#4a3124] px-4 py-2 text-sm text-white disabled:opacity-50"
+                    >
+                      {busyAction === "grade all"
+                        ? "Grading all..."
+                        : `Grade all submitted (${gradeableSubmissions.length})`}
+                    </button>
+
+                    <button
+                      onClick={finalizeAllGraded}
+                      disabled={!canWrite || busyAction !== "" || finalizableSubmissions.length === 0}
+                      className="rounded-full border border-[#e7dcd1] px-4 py-2 text-sm disabled:opacity-50"
+                    >
+                      {busyAction === "finalize all"
+                        ? "Finalizing all..."
+                        : `Finalize all graded (${finalizableSubmissions.length})`}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-6">
+                  <div className="text-xs uppercase tracking-[0.24em] text-[#7f6a5a]">
+                    Candidate exam link
+                  </div>
+                  <div className="mt-3 break-all rounded-[18px] bg-[#fffaf4] px-4 py-3 text-sm text-[#7f6a5a]">
+                    {candidateExamLink || "No valid exam link available yet."}
+                  </div>
+                  <button
+                    onClick={copyCandidateLink}
+                    disabled={!isValidExamAddress}
+                    className="mt-3 rounded-full bg-[#4a3124] px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    Copy generic link
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {invites.length > 0 && (
+          <div className="mb-8 rounded-[28px] border border-[#e7dcd1] bg-white p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-[0.24em] text-[#7f6a5a]">
+                  Invite vault
+                </div>
+                <p className="mt-2 text-sm text-[#7f6a5a]">
+                  These raw invite tokens are only stored locally in this browser.
+                  Export them before clearing storage or changing devices.
+                </p>
+              </div>
+
+              <button
+                onClick={exportInvites}
+                className="rounded-full border border-[#e7dcd1] px-4 py-2 text-sm"
+              >
+                Export invites
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              {invites.map((invite) => (
+                <div
+                  key={invite.candidateId}
+                  className="rounded-[20px] border border-[#e7dcd1] bg-[#fffaf4] p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-lg font-medium">{invite.fullName}</div>
+                      <div className="mt-1 text-sm text-[#7f6a5a]">{invite.email}</div>
+                      <div className="mt-2 text-xs text-[#7f6a5a]">
+                        Candidate ID: {invite.candidateId}
+                      </div>
+                      <div className="mt-2 text-xs text-[#7f6a5a]">
+                        Created: {new Date(invite.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => copyInvite(invite.inviteUrl)}
+                        className="rounded-full bg-[#4a3124] px-4 py-2 text-sm text-white"
+                      >
+                        Copy invite
+                      </button>
+                      <button
+                        onClick={() => removeInvite(invite.candidateId)}
+                        className="rounded-full border border-[#e7dcd1] px-4 py-2 text-sm"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-[18px] border border-[#e7dcd1] bg-white p-4">
+                    <div className="text-xs uppercase tracking-[0.18em] text-[#7f6a5a]">
+                      Invite URL
+                    </div>
+                    <div className="mt-2 break-all text-sm text-[#2f241d]">
+                      {invite.inviteUrl}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-[18px] border border-[#e7dcd1] bg-white p-4">
+                    <div className="text-xs uppercase tracking-[0.18em] text-[#7f6a5a]">
+                      Access token
+                    </div>
+                    <div className="mt-2 break-all font-mono text-sm text-[#2f241d]">
+                      {invite.token}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!isValidExamAddress ? (
           <div className="rounded-[28px] border border-[#e7dcd1] bg-white p-6 text-[#7f6a5a]">
-            This page was opened without a valid exam ID. Go back to{" "}
+            This page was opened without a valid contract address. Go back to{" "}
             <Link href="/recruiter/create-exam" className="underline">
               Create exam
             </Link>{" "}
-            and generate a new exam.
+            and deploy a new exam contract.
           </div>
         ) : (
           <>
@@ -318,7 +904,7 @@ export default function RecruiterExamDetailsPage() {
                   ) : (
                     questions.map((question, index) => (
                       <div
-                        key={question.id}
+                        key={`${question.prompt}-${index}`}
                         className="rounded-[20px] border border-[#e7dcd1] bg-[#fffaf4] p-4"
                       >
                         <div className="text-xs uppercase tracking-[0.2em] text-[#7f6a5a]">
@@ -328,6 +914,11 @@ export default function RecruiterExamDetailsPage() {
                         <div className="mt-2 text-sm text-[#7f6a5a]">
                           Type: {question.question_type} · Points: {question.points}
                         </div>
+                        {question.rubric ? (
+                          <div className="mt-2 text-sm text-[#7f6a5a]">
+                            Rubric: {question.rubric}
+                          </div>
+                        ) : null}
                       </div>
                     ))
                   )}
@@ -336,7 +927,7 @@ export default function RecruiterExamDetailsPage() {
 
               <div className="rounded-[28px] border border-[#e7dcd1] bg-white p-6">
                 <div className="text-xs uppercase tracking-[0.24em] text-[#7f6a5a]">
-                  Invited candidates
+                  Registered candidates
                 </div>
                 <div className="mt-5 space-y-4">
                   {candidates.length === 0 ? (
@@ -344,13 +935,16 @@ export default function RecruiterExamDetailsPage() {
                   ) : (
                     candidates.map((candidate) => (
                       <div
-                        key={candidate.id}
+                        key={candidate.candidate_id}
                         className="rounded-[20px] border border-[#e7dcd1] bg-[#fffaf4] p-4"
                       >
                         <div className="text-lg font-medium">{candidate.full_name}</div>
                         <div className="mt-1 text-sm text-[#7f6a5a]">{candidate.email}</div>
                         <div className="mt-2 text-xs text-[#7f6a5a]">
-                          Candidate ID: {candidate.id}
+                          Candidate ID: {candidate.candidate_id}
+                        </div>
+                        <div className="mt-2 text-xs text-[#7f6a5a]">
+                          Submitted: {candidate.has_submitted ? "Yes" : "No"}
                         </div>
                       </div>
                     ))
@@ -361,16 +955,22 @@ export default function RecruiterExamDetailsPage() {
 
             <div className="mt-8 grid gap-6 lg:grid-cols-2">
               <div className="rounded-[28px] border border-[#e7dcd1] bg-white p-6">
-                <div className="text-xs uppercase tracking-[0.24em] text-[#7f6a5a]">
-                  Candidate submissions and answers
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-xs uppercase tracking-[0.24em] text-[#7f6a5a]">
+                    Candidate submissions
+                  </div>
+                  <div className="text-sm text-[#7f6a5a]">
+                    Submitted only: {submittedOnly.length}
+                  </div>
                 </div>
+
                 <div className="mt-5 space-y-4">
                   {submissions.length === 0 ? (
                     <div className="text-sm text-[#7f6a5a]">No submissions yet.</div>
                   ) : (
-                    submissions.map((submission) => (
+                    submissions.map((submission, idx) => (
                       <div
-                        key={submission.id}
+                        key={`${submission.candidate_id}-${idx}`}
                         className="rounded-[20px] border border-[#e7dcd1] bg-[#fffaf4] p-4"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -379,66 +979,60 @@ export default function RecruiterExamDetailsPage() {
                           </div>
                           <span
                             className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusBadgeColor(
-                              submission.status
+                              submission.result_status || "submitted"
                             )}`}
                           >
-                            {submission.status || "unknown"}
+                            {submission.result_status || "submitted"}
                           </span>
                         </div>
 
                         <div className="mt-2 text-sm text-[#7f6a5a]">
-                          Submitted: {submission.submitted_at || submission.created_at}
-                        </div>
-
-                        <div className="mt-2 text-sm text-[#7f6a5a]">
-                          Result status: {submission.result_status || "pending"}
-                        </div>
-
-                        <div className="mt-2 text-sm text-[#7f6a5a] break-all">
-                          Submission hash: {submission.final_submission_hash || "-"}
+                          Submitted: {submission.submitted_at}
                         </div>
 
                         <div className="mt-4 rounded-[18px] border border-[#e7dcd1] bg-white p-4">
                           <div className="text-xs uppercase tracking-[0.18em] text-[#7f6a5a]">
-                            Submitted answers
+                            Raw submitted answers JSON
                           </div>
-
-                          {!submission.answers ||
-                          Object.keys(submission.answers).length === 0 ? (
-                            <div className="mt-3 text-sm text-[#7f6a5a]">
-                              No answers recorded.
-                            </div>
-                          ) : (
-                            <div className="mt-3 space-y-3">
-                              {Object.entries(submission.answers).map(([questionId, answer]) => (
-                                <div
-                                  key={questionId}
-                                  className="rounded-[16px] border border-[#e7dcd1] bg-[#fffaf4] p-3"
-                                >
-                                  <div className="text-xs uppercase tracking-[0.16em] text-[#7f6a5a]">
-                                    Question ID
-                                  </div>
-                                  <div className="mt-1 break-all text-sm">{questionId}</div>
-
-                                  <div className="mt-3 text-xs uppercase tracking-[0.16em] text-[#7f6a5a]">
-                                    Answer
-                                  </div>
-                                  <div className="mt-1 whitespace-pre-wrap text-sm">
-                                    {answer}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-sm text-[#2f241d]">
+                            {submission.answers_json}
+                          </pre>
                         </div>
 
                         <div className="mt-4 flex flex-wrap gap-2">
-                          <a
-                            href={`/admin/finalize?examId=${examId}&candidateId=${submission.candidate_id}`}
-                            className="rounded-full bg-[#4a3124] px-4 py-2 text-sm text-white"
+                          <button
+                            onClick={() => gradeSubmission(submission.candidate_id)}
+                            disabled={
+                              !canWrite ||
+                              busyAction !== "" ||
+                              submission.result_status === "graded" ||
+                              submission.result_status === "finalized"
+                            }
+                            className="rounded-full bg-[#4a3124] px-4 py-2 text-sm text-white disabled:opacity-50"
                           >
-                            Finalize score
-                          </a>
+                            {busyAction === `grade ${submission.candidate_id}`
+                              ? "Grading..."
+                              : submission.result_status === "graded" ||
+                                  submission.result_status === "finalized"
+                                ? "Already graded"
+                                : "Grade"}
+                          </button>
+
+                          <button
+                            onClick={() => finalizeSubmission(submission.candidate_id)}
+                            disabled={
+                              !canWrite ||
+                              busyAction !== "" ||
+                              submission.result_status === "finalized"
+                            }
+                            className="rounded-full border border-[#e7dcd1] px-4 py-2 text-sm disabled:opacity-50"
+                          >
+                            {busyAction === `finalize ${submission.candidate_id}`
+                              ? "Finalizing..."
+                              : submission.result_status === "finalized"
+                                ? "Finalized"
+                                : "Finalize"}
+                          </button>
                         </div>
                       </div>
                     ))
@@ -446,101 +1040,73 @@ export default function RecruiterExamDetailsPage() {
                 </div>
               </div>
 
-              <div className="space-y-6">
-                <div className="rounded-[28px] border border-[#e7dcd1] bg-white p-6">
+              <div className="rounded-[28px] border border-[#e7dcd1] bg-white p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="text-xs uppercase tracking-[0.24em] text-[#7f6a5a]">
-                    Finalized results
+                    Result overview
                   </div>
-                  <div className="mt-5 space-y-4">
-                    {submissions.length === 0 ? (
-                      <div className="text-sm text-[#7f6a5a]">No finalized results yet.</div>
-                    ) : (
-                      submissions.map((submission) => (
-                        <div
-                          key={`${submission.id}-result`}
-                          className="rounded-[20px] border border-[#e7dcd1] bg-[#fffaf4] p-4"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="text-lg font-medium">
-                              {getCandidateName(submission.candidate_id)}
-                            </div>
-                            <span
-                              className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusBadgeColor(
-                                submission.result_status
-                              )}`}
-                            >
-                              {submission.result_status || "pending"}
-                            </span>
-                          </div>
-
-                          <div className="mt-3 grid gap-3 md:grid-cols-3">
-                            <div className="rounded-[16px] border border-[#e7dcd1] bg-white p-3">
-                              <div className="text-xs uppercase tracking-[0.16em] text-[#7f6a5a]">
-                                Objective
-                              </div>
-                              <div className="mt-2 text-2xl font-semibold">
-                                {submission.objective_score ?? "-"}
-                              </div>
-                            </div>
-
-                            <div className="rounded-[16px] border border-[#e7dcd1] bg-white p-3">
-                              <div className="text-xs uppercase tracking-[0.16em] text-[#7f6a5a]">
-                                Subjective
-                              </div>
-                              <div className="mt-2 text-2xl font-semibold">
-                                {submission.subjective_score ?? "-"}
-                              </div>
-                            </div>
-
-                            <div className="rounded-[16px] border border-[#e7dcd1] bg-white p-3">
-                              <div className="text-xs uppercase tracking-[0.16em] text-[#7f6a5a]">
-                                Total
-                              </div>
-                              <div className="mt-2 text-2xl font-semibold">
-                                {submission.score ?? "-"}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )}
+                  <div className="text-sm text-[#7f6a5a]">
+                    Finalized: {finalizedCount}
                   </div>
                 </div>
 
-                <div className="rounded-[28px] border border-[#e7dcd1] bg-white p-6">
-                  <div className="text-xs uppercase tracking-[0.24em] text-[#7f6a5a]">
-                    Blockchain jobs
-                  </div>
-                  <div className="mt-5 space-y-4">
-                    {jobs.length === 0 ? (
-                      <div className="text-sm text-[#7f6a5a]">No blockchain jobs yet.</div>
-                    ) : (
-                      jobs.map((job) => (
-                        <div
-                          key={job.id}
-                          className="rounded-[20px] border border-[#e7dcd1] bg-[#fffaf4] p-4"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="text-lg font-medium">{job.job_type}</div>
-                            <span
-                              className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusBadgeColor(
-                                job.status
-                              )}`}
-                            >
-                              {job.status}
-                            </span>
+                <div className="mt-5 space-y-4">
+                  {submissions.length === 0 ? (
+                    <div className="text-sm text-[#7f6a5a]">No finalized results yet.</div>
+                  ) : (
+                    submissions.map((submission, idx) => (
+                      <div
+                        key={`${submission.candidate_id}-result-${idx}`}
+                        className="rounded-[20px] border border-[#e7dcd1] bg-[#fffaf4] p-4"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="text-lg font-medium">
+                            {getCandidateName(submission.candidate_id)}
+                          </div>
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusBadgeColor(
+                              submission.result_status || "submitted"
+                            )}`}
+                          >
+                            {submission.result_status || "submitted"}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 grid gap-3 md:grid-cols-3">
+                          <div className="rounded-[16px] border border-[#e7dcd1] bg-white p-3">
+                            <div className="text-xs uppercase tracking-[0.16em] text-[#7f6a5a]">
+                              Objective
+                            </div>
+                            <div className="mt-2 text-2xl font-semibold">
+                              {submission.objective_score ?? "-"}
+                            </div>
                           </div>
 
-                          <div className="mt-2 text-sm text-[#7f6a5a]">
-                            Candidate ID: {job.candidate_id || "-"}
+                          <div className="rounded-[16px] border border-[#e7dcd1] bg-white p-3">
+                            <div className="text-xs uppercase tracking-[0.16em] text-[#7f6a5a]">
+                              Subjective
+                            </div>
+                            <div className="mt-2 text-2xl font-semibold">
+                              {submission.subjective_score ?? "-"}
+                            </div>
                           </div>
-                          <div className="mt-2 text-sm text-[#7f6a5a]">
-                            Created: {new Date(job.created_at).toLocaleString()}
+
+                          <div className="rounded-[16px] border border-[#e7dcd1] bg-white p-3">
+                            <div className="text-xs uppercase tracking-[0.16em] text-[#7f6a5a]">
+                              Total
+                            </div>
+                            <div className="mt-2 text-2xl font-semibold">
+                              {submission.total_score ?? "-"}
+                            </div>
                           </div>
                         </div>
-                      ))
-                    )}
-                  </div>
+
+                        <div className="mt-3 rounded-[16px] border border-[#e7dcd1] bg-white p-3 text-sm text-[#7f6a5a]">
+                          {submission.grading_reasoning || "No grading reasoning yet."}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>

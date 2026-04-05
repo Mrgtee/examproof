@@ -3,71 +3,114 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { sha256 } from "@/lib/hash";
-import { supabase } from "@/lib/supabase";
+import { contractRead, type HexAddress } from "@/lib/genlayer";
 
-interface QuestionRecord {
-  id: string;
+interface ExamView {
+  owner: string;
+  relayer: string;
+  exam_id: string;
+  title: string;
+  description: string;
+  start_time: string;
+  end_time: string;
+  status: string;
+  submission_budget: number;
+  submission_fee_per_candidate: number;
+  question_count: number;
+  candidate_count: number;
+  submission_count: number;
+}
+
+interface QuestionView {
   prompt: string;
   question_type: "mcq" | "short_answer" | "essay";
   points: number;
-  options: string[] | null;
-}
-
-interface CandidateRecord {
-  id: string;
-  full_name: string;
-  email: string;
+  options: string[];
+  rubric: string;
 }
 
 export default function CandidateExamPage() {
   const params = useParams();
-  const examId = String(params.examId);
+  const rawExamId = params?.examId;
+  const examAddress =
+    typeof rawExamId === "string"
+      ? (rawExamId as HexAddress)
+      : Array.isArray(rawExamId)
+        ? (rawExamId[0] as HexAddress)
+        : ("" as HexAddress);
 
-  const [candidateName, setCandidateName] = useState("");
-  const [candidateEmail, setCandidateEmail] = useState("");
-  const [questions, setQuestions] = useState<QuestionRecord[]>([]);
+  const [candidateId, setCandidateId] = useState("");
+  const [candidateToken, setCandidateToken] = useState("");
+  const [questions, setQuestions] = useState<QuestionView[]>([]);
+  const [exam, setExam] = useState<ExamView | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    async function loadQuestions() {
-      const { data, error } = await supabase
-        .from("questions")
-        .select("id, prompt, question_type, points, options")
-        .eq("exam_id", examId)
-        .order("created_at", { ascending: true });
+    if (typeof window === "undefined") return;
 
-      if (error) {
-        setMessage(error.message);
+    const url = new URL(window.location.href);
+    const candidateIdFromUrl = url.searchParams.get("candidateId") || "";
+    const tokenFromUrl = url.searchParams.get("token") || "";
+
+    if (candidateIdFromUrl) setCandidateId(candidateIdFromUrl);
+    if (tokenFromUrl) setCandidateToken(tokenFromUrl);
+  }, []);
+
+  useEffect(() => {
+    async function loadExam() {
+      if (!examAddress || examAddress === ("undefined" as HexAddress)) {
+        setMessage("Invalid exam contract address.");
         return;
       }
 
-      setQuestions((data as QuestionRecord[]) || []);
+      try {
+        const [examData, questionData] = await Promise.all([
+          contractRead<ExamView>({
+            address: examAddress,
+            functionName: "get_exam",
+          }),
+          contractRead<QuestionView[]>({
+            address: examAddress,
+            functionName: "get_questions",
+          }),
+        ]);
+
+        setExam(examData);
+        setQuestions(questionData || []);
+      } catch (error) {
+        setMessage(
+          error instanceof Error ? error.message : "Failed to load exam."
+        );
+      }
     }
 
-    if (examId) {
-      loadQuestions();
-    }
-  }, [examId]);
+    void loadExam();
+  }, [examAddress]);
 
-  const answerPayload = useMemo(() => answers, [answers]);
+  const answerPayload = useMemo(() => {
+    const mapped: Record<string, string> = {};
+    questions.forEach((_, index) => {
+      mapped[String(index)] = answers[String(index)] || "";
+    });
+    return mapped;
+  }, [answers, questions]);
 
-  function updateAnswer(questionId: string, value: string) {
+  function updateAnswer(questionIndex: string, value: string) {
     setAnswers((prev) => ({
       ...prev,
-      [questionId]: value,
+      [questionIndex]: value,
     }));
   }
 
   async function handleSaveDraft() {
-    setMessage("Draft saved in local state for now.");
+    setMessage("Draft saved locally in this browser session.");
   }
 
   async function handleFinalSubmit() {
-    if (!candidateName || !candidateEmail) {
-      setMessage("Please fill your name and email before submitting.");
+    if (!candidateId.trim() || !candidateToken.trim()) {
+      setMessage("Candidate ID and access token are required.");
       return;
     }
 
@@ -76,7 +119,17 @@ export default function CandidateExamPage() {
       return;
     }
 
-    const unanswered = questions.some((q) => !answers[q.id]?.trim());
+    if (exam?.status !== "open") {
+      setMessage("This exam is not open for submissions yet.");
+      return;
+    }
+
+    if ((exam?.submission_budget ?? 0) < (exam?.submission_fee_per_candidate ?? 1)) {
+      setMessage("Submission budget is currently unavailable for this exam.");
+      return;
+    }
+
+    const unanswered = questions.some((_, index) => !answers[String(index)]?.trim());
     if (unanswered) {
       setMessage("Please answer all questions before submitting.");
       return;
@@ -86,85 +139,43 @@ export default function CandidateExamPage() {
     setMessage("");
 
     try {
-      const normalizedEmail = candidateEmail.trim().toLowerCase();
-      const payloadString = JSON.stringify(answerPayload);
-      const submissionHash = await sha256(payloadString);
-
-      const { data: existingCandidate, error: existingCandidateError } =
-        await supabase
-          .from("candidates")
-          .select("id, full_name, email")
-          .eq("exam_id", examId)
-          .eq("email", normalizedEmail)
-          .maybeSingle();
-
-      if (existingCandidateError) {
-        setMessage(existingCandidateError.message);
-        setLoading(false);
-        return;
-      }
-
-      let candidate: CandidateRecord | null =
-        existingCandidate as CandidateRecord | null;
-
-      if (!candidate) {
-        const { data: newCandidate, error: newCandidateError } =
-          await supabase
-            .from("candidates")
-            .insert({
-              exam_id: examId,
-              full_name: candidateName.trim(),
-              email: normalizedEmail,
-            })
-            .select("id, full_name, email")
-            .single();
-
-        if (newCandidateError) {
-          setMessage(newCandidateError.message);
-          setLoading(false);
-          return;
-        }
-
-        candidate = newCandidate as CandidateRecord;
-      }
-
-      const { error: submissionError } = await supabase
-        .from("submissions")
-        .insert({
-          exam_id: examId,
-          candidate_id: candidate.id,
-          answers: answerPayload,
-          final_submission_hash: submissionHash,
-          status: "submitted",
-          submitted_at: new Date().toISOString(),
-        });
-
-      if (submissionError) {
-        setMessage(submissionError.message);
-        setLoading(false);
-        return;
-      }
-
-      await fetch("/api/blockchain-jobs/create", {
+      const response = await fetch("/api/relay/submit", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          jobType: "commit_submission",
-          examId,
-          candidateId: candidate.id,
-          payload: {
-            examId,
-            candidateId: candidate.id,
-            submissionHash,
-          },
+          examAddress,
+          candidateId: candidateId.trim(),
+          candidateToken: candidateToken.trim(),
+          answersJson: JSON.stringify(answerPayload),
+          submittedAt: new Date().toISOString(),
         }),
       });
 
-      setMessage(`Submission successful. Final hash: ${submissionHash}`);
-    } catch {
-      setMessage("Something went wrong during submission.");
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Submission failed.");
+      }
+
+      setMessage(
+        `Submission successful. Tx: ${payload.txHash}${payload.resultStatus ? ` · Status: ${payload.resultStatus}` : ""}`
+      );
+
+      try {
+        const refreshedExam = await contractRead<ExamView>({
+          address: examAddress,
+          functionName: "get_exam",
+        });
+        setExam(refreshedExam);
+      } catch {
+        // ignore refresh failure
+      }
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Something went wrong during submission."
+      );
     } finally {
       setLoading(false);
     }
@@ -179,20 +190,24 @@ export default function CandidateExamPage() {
               Candidate assessment
             </div>
             <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
-              Exam ID: {examId}
+              {exam?.title || "Assessment"}
             </h1>
+            <p className="mt-2 text-sm text-[#7f6a5a] break-all">
+              Contract: {examAddress}
+            </p>
+            {exam ? (
+              <p className="mt-2 text-sm text-[#7f6a5a]">
+                Status: {exam.status} · Budget remaining: {exam.submission_budget}
+              </p>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <div className="rounded-full bg-[#efe5da] px-4 py-2 text-sm text-[#7f6a5a]">
-              Official timer: 01:30:00
-            </div>
-
             <Link
               href="/candidate"
               className="rounded-full border border-[#e7dcd1] px-4 py-2 text-sm"
             >
-              Change UUID
+              Change exam
             </Link>
 
             <Link
@@ -206,17 +221,16 @@ export default function CandidateExamPage() {
 
         <div className="mt-8 grid gap-5 md:grid-cols-2">
           <input
-            value={candidateName}
-            onChange={(e) => setCandidateName(e.target.value)}
+            value={candidateId}
+            onChange={(e) => setCandidateId(e.target.value)}
             className="rounded-[20px] border border-[#e7dcd1] bg-white px-4 py-3 outline-none"
-            placeholder="Full name"
+            placeholder="Candidate ID"
           />
           <input
-            type="email"
-            value={candidateEmail}
-            onChange={(e) => setCandidateEmail(e.target.value)}
+            value={candidateToken}
+            onChange={(e) => setCandidateToken(e.target.value)}
             className="rounded-[20px] border border-[#e7dcd1] bg-white px-4 py-3 outline-none"
-            placeholder="Email address"
+            placeholder="Access token"
           />
         </div>
 
@@ -228,7 +242,7 @@ export default function CandidateExamPage() {
           ) : (
             questions.map((question, index) => (
               <div
-                key={question.id}
+                key={`${question.prompt}-${index}`}
                 className="rounded-[28px] border border-[#e7dcd1] bg-white p-6"
               >
                 <div className="text-xs uppercase tracking-[0.24em] text-[#7f6a5a]">
@@ -248,11 +262,11 @@ export default function CandidateExamPage() {
                       >
                         <input
                           type="radio"
-                          name={question.id}
+                          name={`question-${index}`}
                           value={option}
-                          checked={answers[question.id] === option}
+                          checked={answers[String(index)] === option}
                           onChange={(e) =>
-                            updateAnswer(question.id, e.target.value)
+                            updateAnswer(String(index), e.target.value)
                           }
                         />
                         <span>{option}</span>
@@ -263,10 +277,8 @@ export default function CandidateExamPage() {
 
                 {question.question_type === "short_answer" && (
                   <input
-                    value={answers[question.id] || ""}
-                    onChange={(e) =>
-                      updateAnswer(question.id, e.target.value)
-                    }
+                    value={answers[String(index)] || ""}
+                    onChange={(e) => updateAnswer(String(index), e.target.value)}
                     className="mt-5 w-full rounded-[20px] border border-[#e7dcd1] px-4 py-3 outline-none"
                     placeholder="Write your answer here..."
                   />
@@ -274,10 +286,8 @@ export default function CandidateExamPage() {
 
                 {question.question_type === "essay" && (
                   <textarea
-                    value={answers[question.id] || ""}
-                    onChange={(e) =>
-                      updateAnswer(question.id, e.target.value)
-                    }
+                    value={answers[String(index)] || ""}
+                    onChange={(e) => updateAnswer(String(index), e.target.value)}
                     className="mt-5 min-h-[220px] w-full rounded-[20px] border border-[#e7dcd1] px-4 py-3 outline-none"
                     placeholder="Write your answer here..."
                   />
@@ -304,7 +314,7 @@ export default function CandidateExamPage() {
         </div>
 
         {message && (
-          <div className="mt-5 rounded-[20px] border border-[#e7dcd1] bg-[#fffaf4] p-4 text-sm text-[#7f6a5a]">
+          <div className="mt-5 rounded-[20px] border border-[#e7dcd1] bg-[#fffaf4] p-4 text-sm text-[#7f6a5a] break-words">
             {message}
           </div>
         )}

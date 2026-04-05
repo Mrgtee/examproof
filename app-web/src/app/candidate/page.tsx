@@ -6,14 +6,41 @@ import { useState } from "react";
 
 export default function CandidateEntryPage() {
   const router = useRouter();
-  const [examId, setExamId] = useState("");
+
+  const [examAddress, setExamAddress] = useState("");
+  const [candidateId, setCandidateId] = useState("");
+  const [token, setToken] = useState("");
+  const [message, setMessage] = useState("");
 
   function handleContinue(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!examId.trim()) return;
+    const cleanExamAddress = examAddress.trim();
+    const cleanCandidateId = candidateId.trim();
+    const cleanToken = token.trim();
 
-    router.push(`/candidate/${examId.trim()}`);
+    if (!cleanExamAddress) {
+      setMessage("Enter the exam contract address.");
+      return;
+    }
+
+    if (!cleanExamAddress.startsWith("0x")) {
+      setMessage("Exam contract address must start with 0x.");
+      return;
+    }
+
+    let target = `/candidate/${cleanExamAddress}`;
+
+    const params = new URLSearchParams();
+    if (cleanCandidateId) params.set("candidateId", cleanCandidateId);
+    if (cleanToken) params.set("token", cleanToken);
+
+    const query = params.toString();
+    if (query) {
+      target += `?${query}`;
+    }
+
+    router.push(target);
   }
 
   return (
@@ -28,8 +55,9 @@ export default function CandidateEntryPage() {
               Join an exam
             </h1>
             <p className="mt-3 text-[15px] leading-7 text-[#7f6a5a]">
-              Enter the exam UUID shared by your recruiter to continue into the
-              assessment.
+              Enter the exam contract address shared by your recruiter. If your
+              recruiter also shared a candidate ID and access token, paste them
+              too so you can submit gaslessly.
             </p>
           </div>
 
@@ -44,11 +72,27 @@ export default function CandidateEntryPage() {
         <form onSubmit={handleContinue} className="mt-8 space-y-4">
           <input
             type="text"
-            placeholder="Paste exam UUID"
-            value={examId}
-            onChange={(e) => setExamId(e.target.value)}
+            placeholder="Paste exam contract address (0x...)"
+            value={examAddress}
+            onChange={(e) => setExamAddress(e.target.value)}
             className="w-full rounded-[20px] border border-[#e7dcd1] bg-white px-4 py-3 outline-none"
             required
+          />
+
+          <input
+            type="text"
+            placeholder="Candidate ID (optional if link already included it)"
+            value={candidateId}
+            onChange={(e) => setCandidateId(e.target.value)}
+            className="w-full rounded-[20px] border border-[#e7dcd1] bg-white px-4 py-3 outline-none"
+          />
+
+          <input
+            type="text"
+            placeholder="Access token (optional if link already included it)"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            className="w-full rounded-[20px] border border-[#e7dcd1] bg-white px-4 py-3 outline-none"
           />
 
           <div className="flex flex-wrap gap-3">
@@ -64,6 +108,12 @@ export default function CandidateEntryPage() {
             </Link>
           </div>
         </form>
+
+        {message && (
+          <div className="mt-5 rounded-[20px] border border-[#e7dcd1] bg-[#fffaf4] p-4 text-sm text-[#7f6a5a]">
+            {message}
+          </div>
+        )}
       </div>
     </main>
   );
