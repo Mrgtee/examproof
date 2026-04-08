@@ -5,7 +5,7 @@ from datetime import datetime
 from supabase import create_client
 
 SUPABASE_URL = "https://xbpbsghhrcxxyzznffre.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhicGJzZ2hocmN4eHl6em5mZnJlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTE1NDU2OSwiZXhwIjoyMDkwNzMwNTY5fQ.6OI54Il5XbyWFQzbbe2QYl8WnNqXlj3ekRU94R7xcO4"
+SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 CONTRACT_ADDRESS = "0xc08c7BcB3B10A587958473C97C26Ad654dF5fdDC"
 
