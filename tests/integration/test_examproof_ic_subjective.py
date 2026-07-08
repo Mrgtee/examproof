@@ -1,10 +1,18 @@
+import hashlib
+import json
+
 from gltest import get_contract_factory, get_default_account
 from gltest.assertions import tx_execution_succeeded
+
+
+def sha(secret: str) -> str:
+    return hashlib.sha256(secret.encode()).hexdigest()
 
 
 def test_subjective_grading_live():
     factory = get_contract_factory("ExamProofIC")
     account = get_default_account()
+    relayer_hex = account.address
 
     contract = factory.deploy(
         args=[
@@ -13,6 +21,8 @@ def test_subjective_grading_live():
             "Backend engineer screening exam",
             "2026-04-10T09:00:00Z",
             "2026-04-10T11:00:00Z",
+            relayer_hex,
+            1,
         ],
         account=account,
     )
@@ -46,8 +56,12 @@ def test_subjective_grading_live():
             "cand-001",
             "Alice Doe",
             "alice@example.com",
+            sha("cand-secret-001"),
         ]
     ).transact()
+    assert tx_execution_succeeded(tx)
+
+    tx = contract.fund_submission_budget(args=[1]).transact()
     assert tx_execution_succeeded(tx)
 
     tx = contract.publish_exam().transact()
@@ -56,23 +70,25 @@ def test_subjective_grading_live():
     tx = contract.open_exam().transact()
     assert tx_execution_succeeded(tx)
 
-    tx = contract.submit_exam(
+    tx = contract.submit_exam_gasless(
         args=[
             "cand-001",
-            '{"0":"4","1":"Assessment integrity matters because it protects fairness, improves trust, strengthens defensibility, and helps institutions make decisions they can justify."}',
+            "cand-secret-001",
+            json.dumps(
+                {
+                    "0": "4",
+                    "1": "Assessment integrity matters because it protects fairness, improves trust, strengthens defensibility, and helps institutions make decisions they can justify.",
+                }
+            ),
             "2026-04-10T09:30:00Z",
         ]
     ).transact()
     assert tx_execution_succeeded(tx)
 
-    tx = contract.grade_subjective_submission(
-        args=["cand-001"]
-    ).transact()
+    tx = contract.grade_subjective_submission(args=["cand-001"]).transact()
     assert tx_execution_succeeded(tx)
 
-    tx = contract.finalize_result(
-        args=["cand-001", "finalized"]
-    ).transact()
+    tx = contract.finalize_result(args=["cand-001", "finalized"]).transact()
     assert tx_execution_succeeded(tx)
 
     result = contract.get_result(args=["cand-001"]).call()

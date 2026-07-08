@@ -14,16 +14,27 @@ function getEnv(name: string) {
   return value;
 }
 
-function getReceiptError(receipt: any): string {
-  return (
-    receipt?.data?.stderr ||
-    receipt?.data?.error ||
-    receipt?.data?.message ||
-    receipt?.txDataDecoded?.stderr ||
-    receipt?.txDataDecoded?.error ||
-    receipt?.txExecutionResultName ||
-    "Gasless submission execution failed."
-  );
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function getReceiptError(receipt: unknown): string {
+  const receiptRecord = asRecord(receipt);
+  const data = asRecord(receiptRecord?.data);
+  const decoded = asRecord(receiptRecord?.txDataDecoded);
+
+  const reason =
+    data?.stderr ||
+    data?.error ||
+    data?.message ||
+    decoded?.stderr ||
+    decoded?.error ||
+    receiptRecord?.txExecutionResultName ||
+    "Gasless submission execution failed.";
+
+  return String(reason);
 }
 
 async function sleep(ms: number) {

@@ -1,4 +1,5 @@
 import hashlib
+import json
 
 
 def sha(secret: str) -> str:
@@ -20,6 +21,26 @@ def deploy_exam(direct_deploy, relayer: str):
         relayer,
         1,
     )
+
+
+def prepare_open_mcq_exam(contract, correct_answer="4"):
+    contract.add_question(
+        "What is 2 + 2?",
+        "mcq",
+        5,
+        ["2", "3", correct_answer, "5"],
+        correct_answer,
+        "",
+    )
+    contract.register_candidate(
+        "cand-001",
+        "Alice Doe",
+        "alice@example.com",
+        sha("cand-secret-001"),
+    )
+    contract.fund_submission_budget(2)
+    contract.publish_exam()
+    contract.open_exam()
 
 
 def test_create_exam_and_read(direct_deploy, direct_alice):
@@ -69,29 +90,13 @@ def test_gasless_submission_uses_budget(
     contract = deploy_exam(direct_deploy, relayer_str(direct_alice))
 
     direct_vm.sender = direct_owner
-    contract.add_question(
-        "What is 2 + 2?",
-        "mcq",
-        5,
-        ["2", "3", "4", "5"],
-        "4",
-        "",
-    )
-    contract.register_candidate(
-        "cand-001",
-        "Alice Doe",
-        "alice@example.com",
-        sha("cand-secret-001"),
-    )
-    contract.fund_submission_budget(2)
-    contract.publish_exam()
-    contract.open_exam()
+    prepare_open_mcq_exam(contract)
 
     direct_vm.sender = direct_alice
     contract.submit_exam_gasless(
         "cand-001",
         "cand-secret-001",
-        '{"0":"4"}',
+        json.dumps({"0": "4"}),
         "2026-04-10T09:30:00Z",
     )
 
@@ -105,35 +110,41 @@ def test_gasless_submission_uses_budget(
     assert candidates[0]["has_submitted"] is True
 
 
+def test_submission_answers_json_allows_spaces_and_escaped_quotes(
+    direct_deploy, direct_vm, direct_owner, direct_alice
+):
+    contract = deploy_exam(direct_deploy, relayer_str(direct_alice))
+
+    direct_vm.sender = direct_owner
+    prepare_open_mcq_exam(contract, correct_answer='A "quoted" answer')
+
+    direct_vm.sender = direct_alice
+    contract.submit_exam_gasless(
+        "cand-001",
+        "cand-secret-001",
+        json.dumps({"0": 'A "quoted" answer'}, indent=2),
+        "2026-04-10T09:30:00Z",
+    )
+
+    result = contract.get_result("cand-001")
+
+    assert result["objective_score"] == 5
+    assert result["total_score"] == 5
+
+
 def test_duplicate_submission_blocked(
     direct_deploy, direct_vm, direct_owner, direct_alice
 ):
     contract = deploy_exam(direct_deploy, relayer_str(direct_alice))
 
     direct_vm.sender = direct_owner
-    contract.add_question(
-        "What is 2 + 2?",
-        "mcq",
-        5,
-        ["2", "3", "4", "5"],
-        "4",
-        "",
-    )
-    contract.register_candidate(
-        "cand-001",
-        "Alice Doe",
-        "alice@example.com",
-        sha("cand-secret-001"),
-    )
-    contract.fund_submission_budget(2)
-    contract.publish_exam()
-    contract.open_exam()
+    prepare_open_mcq_exam(contract)
 
     direct_vm.sender = direct_alice
     contract.submit_exam_gasless(
         "cand-001",
         "cand-secret-001",
-        '{"0":"4"}',
+        json.dumps({"0": "4"}),
         "2026-04-10T09:30:00Z",
     )
 
@@ -141,7 +152,7 @@ def test_duplicate_submission_blocked(
         contract.submit_exam_gasless(
             "cand-001",
             "cand-secret-001",
-            '{"0":"4"}',
+            json.dumps({"0": "4"}),
             "2026-04-10T09:31:00Z",
         )
         assert False, "Expected duplicate submission to fail"

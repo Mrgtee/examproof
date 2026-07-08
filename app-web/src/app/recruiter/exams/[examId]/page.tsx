@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import type { CalldataEncodable } from "genlayer-js/types";
 import QuestionEditor from "@/components/QuestionEditor";
@@ -160,7 +160,7 @@ export default function RecruiterExamDetailsPage() {
     }
   }
 
-  async function loadData(silent = false) {
+  const loadData = useCallback(async (silent = false) => {
     if (!isValidExamAddress) {
       setMessage("Invalid contract address. Please create a new exam again.");
       return;
@@ -203,7 +203,7 @@ export default function RecruiterExamDetailsPage() {
         setRefreshing(false);
       }
     }
-  }
+  }, [examAddress, isValidExamAddress]);
 
   useEffect(() => {
     if (isValidExamAddress) {
@@ -211,7 +211,7 @@ export default function RecruiterExamDetailsPage() {
     } else {
       setMessage("Invalid contract address. Please create a new exam again.");
     }
-  }, [examAddress, isValidExamAddress]);
+  }, [isValidExamAddress, loadData]);
 
   const canWrite = useMemo(() => !!wallet && isValidExamAddress, [wallet, isValidExamAddress]);
 

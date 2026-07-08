@@ -10,24 +10,26 @@ import {
   type CalldataEncodable,
 } from "genlayer-js/types";
 
-declare global {
-  interface Window {
-    ethereum?: any;
-    okxwallet?: {
-      ethereum?: any;
-    };
-  }
-}
-
-export type HexAddress = `0x${string}`;
+type ProviderRequest = { method: string; params?: unknown[] };
 
 type InjectedProvider = {
-  request: (args: { method: string; params?: unknown[] }) => Promise<any>;
+  request: (args: ProviderRequest) => Promise<unknown>;
   isMetaMask?: boolean;
   isRabby?: boolean;
   isOkxWallet?: boolean;
   providers?: InjectedProvider[];
 };
+
+declare global {
+  interface Window {
+    ethereum?: InjectedProvider;
+    okxwallet?: {
+      ethereum?: InjectedProvider;
+    };
+  }
+}
+
+export type HexAddress = `0x${string}`;
 
 export const RELAYER_ADDRESS =
   (process.env.NEXT_PUBLIC_EXAMPROOF_RELAYER_ADDRESS as HexAddress | undefined) ??
@@ -38,13 +40,15 @@ function getInjectedProviders(): InjectedProvider[] {
 
   const found: InjectedProvider[] = [];
 
-  const pushIfValid = (provider: any) => {
+  const pushIfValid = (provider: unknown) => {
+    const maybeProvider = provider as Partial<InjectedProvider> | null;
+
     if (
-      provider &&
-      typeof provider.request === "function" &&
-      !found.includes(provider)
+      maybeProvider &&
+      typeof maybeProvider.request === "function" &&
+      !found.includes(maybeProvider as InjectedProvider)
     ) {
-      found.push(provider);
+      found.push(maybeProvider as InjectedProvider);
     }
   };
 
@@ -169,10 +173,17 @@ export async function loadContractCode(path = "/contracts/examproof_ic.py") {
   return await res.text();
 }
 
-function extractReceiptError(receipt: any): string | null {
-  const txResult = receipt?.txExecutionResultName;
-  const data = receipt?.data;
-  const decoded = receipt?.txDataDecoded;
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function extractReceiptError(receipt: unknown): string | null {
+  const receiptRecord = asRecord(receipt);
+  const txResult = receiptRecord?.txExecutionResultName;
+  const data = asRecord(receiptRecord?.data);
+  const decoded = asRecord(receiptRecord?.txDataDecoded);
 
   const reason =
     data?.stderr ||
@@ -183,7 +194,7 @@ function extractReceiptError(receipt: any): string | null {
     null;
 
   if (reason) return String(reason);
-  if (txResult && txResult !== "FINISHED_WITH_RETURN") {
+  if (typeof txResult === "string" && txResult !== "FINISHED_WITH_RETURN") {
     return `Execution failed: ${txResult}`;
   }
   return null;

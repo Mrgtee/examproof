@@ -11,23 +11,18 @@ export default function SignInPage() {
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [redirectedFrom, setRedirectedFrom] = useState("/recruiter/create-exam");
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const redirectedFrom = useMemo(() => {
+    if (typeof window === "undefined") return "/recruiter/create-exam";
 
     const params = new URLSearchParams(window.location.search);
     const rawRedirectedFrom = params.get("redirectedFrom");
 
-    const safeRedirect =
-      rawRedirectedFrom &&
+    return rawRedirectedFrom &&
       rawRedirectedFrom.startsWith("/") &&
       !rawRedirectedFrom.includes("/undefined") &&
       !rawRedirectedFrom.includes("/null")
-        ? rawRedirectedFrom
-        : "/recruiter/create-exam";
-
-    setRedirectedFrom(safeRedirect);
+      ? rawRedirectedFrom
+      : "/recruiter/create-exam";
   }, []);
 
   useEffect(() => {
