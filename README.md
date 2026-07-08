@@ -7,7 +7,7 @@ ExamProof is built around a **GenLayer Intelligent Contract** rather than a trad
 ## Live URL
 
 **Production App:** `https://examproof.vercel.app`
-**Contract Address:** 0x131672f96Be658270cb2F83A7b57027576D7046C
+**Contract Address:** 0x3990436b24a75f2F8d03231A0dAA0A29EDb0BcCd
 
 ---
 
