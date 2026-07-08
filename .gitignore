@@ -20,3 +20,4 @@ __pycache__/
 .vscode/*.log
 .env.worker
 examproof-dev.keystore.json
+examproof-deployment.json
