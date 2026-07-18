@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { contractRead, type HexAddress } from "@/lib/genlayer";
+import { hashSubmissionAuthorization } from "@/lib/hash";
 
 interface ExamView {
   owner: string;
@@ -114,17 +115,22 @@ export default function CandidateExamPage() {
       return;
     }
 
+    if (!exam) {
+      setMessage("Exam details are still loading.");
+      return;
+    }
+
     if (questions.length === 0) {
       setMessage("No questions found for this exam.");
       return;
     }
 
-    if (exam?.status !== "open") {
+    if (exam.status !== "open") {
       setMessage("This exam is not open for submissions yet.");
       return;
     }
 
-    if ((exam?.submission_budget ?? 0) < (exam?.submission_fee_per_candidate ?? 1)) {
+    if (exam.submission_budget < exam.submission_fee_per_candidate) {
       setMessage("Submission budget is currently unavailable for this exam.");
       return;
     }
@@ -139,6 +145,17 @@ export default function CandidateExamPage() {
     setMessage("");
 
     try {
+      const cleanCandidateId = candidateId.trim();
+      const answersJson = JSON.stringify(answerPayload);
+      const submittedAt = new Date().toISOString();
+      const submissionAuthorization = await hashSubmissionAuthorization({
+        examId: exam.exam_id,
+        candidateId: cleanCandidateId,
+        candidateToken: candidateToken.trim(),
+        answersJson,
+        submittedAt,
+      });
+
       const response = await fetch("/api/relay/submit", {
         method: "POST",
         headers: {
@@ -146,10 +163,10 @@ export default function CandidateExamPage() {
         },
         body: JSON.stringify({
           examAddress,
-          candidateId: candidateId.trim(),
-          candidateToken: candidateToken.trim(),
-          answersJson: JSON.stringify(answerPayload),
-          submittedAt: new Date().toISOString(),
+          candidateId: cleanCandidateId,
+          answersJson,
+          submittedAt,
+          submissionAuthorization,
         }),
       });
 

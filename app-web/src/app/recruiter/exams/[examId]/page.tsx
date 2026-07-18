@@ -13,6 +13,7 @@ import {
   getSavedRecruiterWallet,
   type HexAddress,
 } from "@/lib/genlayer";
+import { sha256 } from "@/lib/hash";
 
 interface ExamView {
   owner: string;
@@ -54,6 +55,7 @@ interface SubmissionView {
   total_score: number;
   result_status: string;
   submitted_at: string;
+  submission_authorization: string;
   grading_reasoning: string;
 }
 
@@ -68,14 +70,6 @@ interface CandidateInviteRecord {
 
 function randomId(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
-}
-
-async function sha256Hex(input: string) {
-  const bytes = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 function inviteStorageKey(examAddress: string) {
@@ -216,13 +210,7 @@ export default function RecruiterExamDetailsPage() {
   const canWrite = useMemo(() => !!wallet && isValidExamAddress, [wallet, isValidExamAddress]);
 
   const gradedCount = useMemo(
-    () =>
-      submissions.filter(
-        (submission) =>
-          submission.result_status === "graded" ||
-          ((submission.subjective_score ?? 0) > 0 &&
-            submission.result_status !== "finalized")
-      ).length,
+    () => submissions.filter((submission) => submission.result_status === "graded").length,
     [submissions]
   );
 
@@ -232,33 +220,17 @@ export default function RecruiterExamDetailsPage() {
   );
 
   const submittedOnly = useMemo(
-    () =>
-      submissions.filter(
-        (submission) =>
-          submission.result_status !== "graded" &&
-          submission.result_status !== "finalized"
-      ),
+    () => submissions.filter((submission) => submission.result_status === "submitted"),
     [submissions]
   );
 
   const gradeableSubmissions = useMemo(
-    () =>
-      submissions.filter(
-        (submission) =>
-          submission.result_status !== "graded" &&
-          submission.result_status !== "finalized"
-      ),
+    () => submissions.filter((submission) => submission.result_status === "submitted"),
     [submissions]
   );
 
   const finalizableSubmissions = useMemo(
-    () =>
-      submissions.filter(
-        (submission) =>
-          submission.result_status === "graded" ||
-          ((submission.subjective_score ?? 0) > 0 &&
-            submission.result_status !== "finalized")
-      ),
+    () => submissions.filter((submission) => submission.result_status === "graded"),
     [submissions]
   );
 
@@ -333,7 +305,7 @@ export default function RecruiterExamDetailsPage() {
 
       const candidateId = randomId("cand");
       const token = crypto.randomUUID();
-      const secretHash = await sha256Hex(token);
+      const secretHash = await sha256(token);
 
       await contractWrite({
         recruiter: wallet,
@@ -1000,21 +972,30 @@ export default function RecruiterExamDetailsPage() {
                           </pre>
                         </div>
 
+                        {submission.submission_authorization ? (
+                          <div className="mt-4 rounded-[18px] border border-[#e7dcd1] bg-white p-4">
+                            <div className="text-xs uppercase tracking-[0.18em] text-[#7f6a5a]">
+                              Submission authorization
+                            </div>
+                            <div className="mt-3 break-all font-mono text-xs text-[#2f241d]">
+                              {submission.submission_authorization}
+                            </div>
+                          </div>
+                        ) : null}
+
                         <div className="mt-4 flex flex-wrap gap-2">
                           <button
                             onClick={() => gradeSubmission(submission.candidate_id)}
                             disabled={
                               !canWrite ||
                               busyAction !== "" ||
-                              submission.result_status === "graded" ||
-                              submission.result_status === "finalized"
+                              submission.result_status !== "submitted"
                             }
                             className="rounded-full bg-[#4a3124] px-4 py-2 text-sm text-white disabled:opacity-50"
                           >
                             {busyAction === `grade ${submission.candidate_id}`
                               ? "Grading..."
-                              : submission.result_status === "graded" ||
-                                  submission.result_status === "finalized"
+                              : submission.result_status !== "submitted"
                                 ? "Already graded"
                                 : "Grade"}
                           </button>
@@ -1024,7 +1005,7 @@ export default function RecruiterExamDetailsPage() {
                             disabled={
                               !canWrite ||
                               busyAction !== "" ||
-                              submission.result_status === "finalized"
+                              submission.result_status !== "graded"
                             }
                             className="rounded-full border border-[#e7dcd1] px-4 py-2 text-sm disabled:opacity-50"
                           >
@@ -1032,7 +1013,9 @@ export default function RecruiterExamDetailsPage() {
                               ? "Finalizing..."
                               : submission.result_status === "finalized"
                                 ? "Finalized"
-                                : "Finalize"}
+                                : submission.result_status !== "graded"
+                                  ? "Grade first"
+                                  : "Finalize"}
                           </button>
                         </div>
                       </div>

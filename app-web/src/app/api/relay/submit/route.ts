@@ -69,16 +69,16 @@ export async function POST(req: Request) {
 
     const examAddress = body.examAddress as HexAddress | undefined;
     const candidateId = body.candidateId as string | undefined;
-    const candidateToken = body.candidateToken as string | undefined;
+    const submissionAuthorization = body.submissionAuthorization as string | undefined;
     const answersJson = body.answersJson as string | undefined;
     const submittedAt = body.submittedAt as string | undefined;
 
     if (
       !examAddress ||
       !candidateId ||
-      !candidateToken ||
       !answersJson ||
-      !submittedAt
+      !submittedAt ||
+      !submissionAuthorization
     ) {
       return NextResponse.json(
         { error: "Missing required submission fields." },
@@ -100,7 +100,7 @@ export async function POST(req: Request) {
       account: relayerAccount,
       address: examAddress,
       functionName: "submit_exam_gasless",
-      args: [candidateId, candidateToken, answersJson, submittedAt],
+      args: [candidateId, answersJson, submittedAt, submissionAuthorization],
       value: BigInt(0),
     });
 

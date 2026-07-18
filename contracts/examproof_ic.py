@@ -39,6 +39,7 @@ class Submission:
     total_score: i32
     result_status: str
     submitted_at: str
+    submission_authorization: str
     grading_reasoning: str
 
 
@@ -139,8 +140,53 @@ class ExamProofIC(gl.Contract):
 
         return total
 
+    def _hash_text(self, value: str) -> str:
+        return hashlib.sha256(value.encode()).hexdigest()
+
     def _hash_secret(self, secret: str) -> str:
-        return hashlib.sha256(secret.encode()).hexdigest()
+        return self._hash_text(secret)
+
+    def _auth_field(self, value: str) -> str:
+        return str(len(value.encode())) + ":" + value
+
+    def _submission_authorization_payload(
+        self,
+        candidate_id: str,
+        answers_json: str,
+        submitted_at: str,
+    ) -> str:
+        return (
+            "ExamProofSubmission:v1\n"
+            + "exam_id:"
+            + self._auth_field(self.exam_id)
+            + "\n"
+            + "candidate_id:"
+            + self._auth_field(candidate_id)
+            + "\n"
+            + "submitted_at:"
+            + self._auth_field(submitted_at)
+            + "\n"
+            + "answers_json:"
+            + self._auth_field(answers_json)
+        )
+
+    def _hash_submission_authorization(
+        self,
+        candidate_secret_hash: str,
+        candidate_id: str,
+        answers_json: str,
+        submitted_at: str,
+    ) -> str:
+        payload = self._submission_authorization_payload(
+            candidate_id,
+            answers_json,
+            submitted_at,
+        )
+        return self._hash_text(
+            payload
+            + "\nsecret_hash:"
+            + self._auth_field(candidate_secret_hash)
+        )
 
     @gl.public.write
     def set_relayer(self, relayer: str):
@@ -235,9 +281,9 @@ class ExamProofIC(gl.Contract):
     def submit_exam_gasless(
         self,
         candidate_id: str,
-        candidate_secret: str,
         answers_json: str,
         submitted_at: str,
+        submission_authorization: str,
     ):
         self._only_relayer()
 
@@ -262,8 +308,14 @@ class ExamProofIC(gl.Contract):
         if self.submission_budget < self.submission_fee_per_candidate:
             raise gl.vm.UserError("Insufficient submission budget")
 
-        if self._hash_secret(candidate_secret) != candidate.secret_hash:
-            raise gl.vm.UserError("Invalid candidate secret")
+        expected_authorization = self._hash_submission_authorization(
+            candidate.secret_hash,
+            candidate_id,
+            answers_json,
+            submitted_at,
+        )
+        if submission_authorization != expected_authorization:
+            raise gl.vm.UserError("Invalid submission authorization")
 
         objective_score = self._grade_objective_from_json(answers_json)
 
@@ -276,6 +328,7 @@ class ExamProofIC(gl.Contract):
                 total_score=objective_score,
                 result_status="submitted",
                 submitted_at=submitted_at,
+                submission_authorization=submission_authorization,
                 grading_reasoning="Pending subjective grading",
             )
         )
@@ -300,6 +353,9 @@ class ExamProofIC(gl.Contract):
             raise gl.vm.UserError("Submission not found")
 
         submission = self.submissions[submission_index]
+
+        if submission.result_status != "submitted":
+            raise gl.vm.UserError("Submission has already been graded or finalized")
 
         total_subjective = i32(0)
         reasoning_parts: DynArray[str] = []
@@ -430,7 +486,10 @@ Return ONLY valid JSON with this exact structure:
             )
 
         total_score = submission.objective_score + total_subjective
-        reasoning_text = " | ".join(reasoning_parts)
+        if len(reasoning_parts) == 0:
+            reasoning_text = "No subjective questions to grade"
+        else:
+            reasoning_text = " | ".join(reasoning_parts)
 
         self.submissions[submission_index] = Submission(
             candidate_id=submission.candidate_id,
@@ -440,6 +499,7 @@ Return ONLY valid JSON with this exact structure:
             total_score=total_score,
             result_status="graded",
             submitted_at=submission.submitted_at,
+            submission_authorization=submission.submission_authorization,
             grading_reasoning=reasoning_text,
         )
 
@@ -459,6 +519,12 @@ Return ONLY valid JSON with this exact structure:
 
         old = self.submissions[submission_index]
 
+        if old.result_status != "graded":
+            raise gl.vm.UserError("Only graded submissions can be finalized")
+
+        if result_status != "finalized":
+            raise gl.vm.UserError("Result status must be finalized")
+
         self.submissions[submission_index] = Submission(
             candidate_id=old.candidate_id,
             answers_json=old.answers_json,
@@ -467,6 +533,7 @@ Return ONLY valid JSON with this exact structure:
             total_score=old.total_score,
             result_status=result_status,
             submitted_at=old.submitted_at,
+            submission_authorization=old.submission_authorization,
             grading_reasoning=old.grading_reasoning,
         )
 
@@ -533,6 +600,7 @@ Return ONLY valid JSON with this exact structure:
                     "total_score": s.total_score,
                     "result_status": s.result_status,
                     "submitted_at": s.submitted_at,
+                    "submission_authorization": s.submission_authorization,
                     "grading_reasoning": s.grading_reasoning,
                 }
             )
@@ -552,5 +620,6 @@ Return ONLY valid JSON with this exact structure:
             "total_score": s.total_score,
             "result_status": s.result_status,
             "submitted_at": s.submitted_at,
+            "submission_authorization": s.submission_authorization,
             "grading_reasoning": s.grading_reasoning,
         }

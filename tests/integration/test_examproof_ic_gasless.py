@@ -7,6 +7,29 @@ def sha(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()
 
 
+def auth_field(value: str) -> str:
+    return f"{len(value.encode())}:{value}"
+
+
+def submission_authorization(
+    exam_id: str,
+    candidate_id: str,
+    candidate_secret: str,
+    answers_json: str,
+    submitted_at: str,
+) -> str:
+    payload = "\n".join(
+        [
+            "ExamProofSubmission:v1",
+            "exam_id:" + auth_field(exam_id),
+            "candidate_id:" + auth_field(candidate_id),
+            "submitted_at:" + auth_field(submitted_at),
+            "answers_json:" + auth_field(answers_json),
+        ]
+    )
+    return sha(payload + "\nsecret_hash:" + auth_field(sha(candidate_secret)))
+
+
 def test_gasless_submission_live():
     factory = get_contract_factory("ExamProofIC")
     recruiter = get_default_account()
@@ -72,12 +95,22 @@ def test_gasless_submission_live():
     tx = contract.open_exam().transact()
     assert tx_execution_succeeded(tx)
 
+    answers_json = '{"0":"4","1":"Assessment integrity matters because it protects fairness, improves trust, strengthens defensibility, and helps institutions make decisions they can justify."}'
+    submitted_at = "2026-04-10T09:30:00Z"
+    authorization = submission_authorization(
+        "EXAM-GASLESS-001",
+        "cand-001",
+        "cand-secret-001",
+        answers_json,
+        submitted_at,
+    )
+
     tx = contract.submit_exam_gasless(
         args=[
             "cand-001",
-            "cand-secret-001",
-            '{"0":"4","1":"Assessment integrity matters because it protects fairness, improves trust, strengthens defensibility, and helps institutions make decisions they can justify."}',
-            "2026-04-10T09:30:00Z",
+            answers_json,
+            submitted_at,
+            authorization,
         ]
     ).transact()
     assert tx_execution_succeeded(tx)
@@ -101,5 +134,6 @@ def test_gasless_submission_live():
     assert result["subjective_score"] >= 0
     assert result["total_score"] >= 5
     assert result["result_status"] == "finalized"
+    assert result["submission_authorization"] == authorization
     assert len(result["grading_reasoning"]) > 5
     assert candidates[0]["has_submitted"] is True

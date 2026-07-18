@@ -7,7 +7,7 @@ ExamProof is built around a **GenLayer Intelligent Contract** rather than a trad
 ## Live URL
 
 **Production App:** `https://examproof.vercel.app`
-**Contract Address:** 0x8C3175b78479f253D22939b799a1d9932B6372e5
+**Contract Address:** 0x898b5D0874cCde11C2F21336b473c69b67a34DD8
 
 ---
 
@@ -75,7 +75,7 @@ Instead, each candidate receives an invite flow containing:
 - candidate ID
 - access token
 
-Candidates complete the exam and submit through a relay route, while the relayer wallet pays gas. The contract still decides whether the submission is valid.
+Candidates complete the exam and authorize the exact answer payload locally with their access token. The relay route receives the authorization digest, not the raw token, while the relayer wallet pays gas. The contract still decides whether the submission is valid.
 
 ## Contract-Backed Exam State
 
@@ -191,7 +191,7 @@ Each candidate is registered with:
 
 The recruiter side generates a raw invite token, hashes it, and stores only the hash in the contract.
 
-This means the recruiter must preserve the raw token, because it cannot be recovered from contract state later.
+The candidate browser uses the raw token locally to authorize the exact submission payload. The relay endpoint and contract receive the authorization digest, not the readable token. This means the recruiter must preserve the raw token, because it cannot be recovered from contract state later.
 
 ## 5. Recruiter Funds Submission Budget
 
@@ -234,19 +234,19 @@ The contract verifies:
 - the candidate is active
 - the candidate has not already submitted
 - the submission budget is sufficient
-- the submitted token matches the stored secret hash
+- the submission authorization matches the stored secret hash and exact answer payload
 
-If valid, the submission is recorded.
+If valid, the submission and its authorization digest are recorded.
 
 ## 9. Contract Handles Grading
 
 Objective grading is computed from submitted answers.
 
-Subjective grading is triggered through GenLayer reasoning and stored in the submission record.
+Subjective grading is triggered through GenLayer reasoning and stored in the submission record. A submitted response can be graded only once.
 
 ## 10. Recruiter Finalizes Results
 
-After grading, the recruiter finalizes the result state for the candidate.
+After grading, the recruiter finalizes the result state for the candidate. Finalization is one-shot and only accepts the `finalized` result state.
 
 Final result data includes:
 
@@ -318,14 +318,15 @@ The relayer does **not** decide submission validity. The contract does.
 
 ## 4. Invite Token Model
 
-Candidate access is protected by a token-based model:
+Candidate access is protected by a token-authorized payload model:
 
 - raw token generated off-chain
 - hash stored onchain
-- candidate submits raw token
-- contract verifies the hash
+- browser derives an authorization digest over the exact answers, exam ID, candidate ID, and timestamp
+- relay submits the answers plus authorization digest
+- contract verifies the digest before accepting the submission
 
-This supports a gasless candidate experience without exposing the stored credential directly in contract state.
+This supports a gasless candidate experience without sending the readable invite token through the relay endpoint.
 
 ---
 
